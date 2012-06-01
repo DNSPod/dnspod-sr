@@ -30,11 +30,32 @@ dnspod-sr 依托于 DNSPod 多年运营和优化 DNS 服务的经验，针对国
 2. 公司、学校、政府等组织内部 DNS，解析外部不可见的私有域名，提高上网速度
 
 ## 快速开始
-1. 下载源码，`git clone https://github.com/DNSPod/dnspod-sr.git` 或者下载  https://github.com/DNSPod/dnspod-sr/zipball/master
-1. 进入 dnspod-sr 文件夹
-2. 键入 make
-3. 在 sr.conf 中指定日志文件目录（默认将在当前文件夹）
-4. ./dnspod-sr 运行
+下载源码：
+
+    git clone https://github.com/DNSPod/dnspod-sr.git
+    cd dnspod-sr
+
+或者下载压缩包：
+
+    https://github.com/DNSPod/dnspod-sr/zipball/master
+
+编译源码：
+
+    make
+
+如果需要指定日志问卷目录，修改 sr.conf 中指定日志文件目录（默认将在当前文件夹）
+
+    # 非必须操作
+    vim sr.conf
+
+修改以下部分
+
+    log_path:
+    ./log/
+
+运行
+
+    ./dnspod-sr
 
 
 ## Roadmap
