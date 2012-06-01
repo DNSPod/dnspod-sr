@@ -23,7 +23,7 @@ dnspod-sr 依托于 DNSPod 多年运营和优化 DNS 服务的经验，针对国
 - BIND 9.9: 7万 qps
 - unbound 4.7: 8万 qps
 
-![Benchmark](https://dnspod.github.com/dnspod-sr/benchmark.jpg)
+![Benchmark](https://github.com/DNSPod/dnspod-sr/raw/master/benchmark.jpg)
 
 ## 解决方案
 1. 架设 dnspod-sr 集群，替换各大运营商目前基于 BIND 的陈旧方案，减少运营成本
