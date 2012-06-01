@@ -19,9 +19,9 @@
     s-static.ak.facebook.com.edgekey.net.:8.8.8.8
     :
 
-最后一行以:结束.
+最后一行以`:`结束。
 
-配置日志文件目录，如下:
+配置日志文件目录（可选）
 
     log_path:
     ./log/

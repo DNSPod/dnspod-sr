@@ -43,16 +43,6 @@ dnspod-sr 依托于 DNSPod 多年运营和优化 DNS 服务的经验，针对国
 
     make
 
-如果需要指定日志问卷目录，修改 sr.conf 中指定日志文件目录（默认将在当前文件夹）
-
-    # 非必须操作
-    vim sr.conf
-
-修改以下部分
-
-    log_path:
-    ./log/
-
 运行
 
     ./dnspod-sr

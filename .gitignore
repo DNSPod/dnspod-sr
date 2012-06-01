@@ -1,0 +1,20 @@
+.*
+!.gitignore
+*~
+
+.*.sw[a-z]
+*.un~
+Session.vim
+
+# Object files
+*.o
+
+# Libraries
+*.lib
+
+# Shared objects
+*.so
+
+# Executables
+*.out
+
