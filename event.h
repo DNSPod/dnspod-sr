@@ -38,55 +38,51 @@ struct event_data;
 struct worker;
 struct baseinfo;
 struct sockinfo;
-typedef int (*noti_chain_callback) (struct event_data*,void*,int); 
+typedef int (*noti_chain_callback) (struct event_data *, void *, int);
 
 
-struct event_data
-{
- int fd;
- noti_chain_callback cb;
- void *ext;
+struct event_data {
+    int fd;
+    noti_chain_callback cb;
+    void *ext;
 };
 
 
 struct iner_event;
-struct event
-{
- int size;
- int onexit;
- struct iner_event *ie;
- struct event_data data[0];
+struct event {
+    int size;
+    int onexit;
+    struct iner_event *ie;
+    struct event_data data[0];
 };
 
 
-enum event_type
-{
- ET_READ = 1,
- ET_WRITE = 2,
- ET_ALL = 3,
+enum event_type {
+    ET_READ = 1,
+    ET_WRITE = 2,
+    ET_ALL = 3,
 };
 
 
-struct event_help
-{
- int fd;
- int spfd;
- int num;
- enum event_type type;
- struct timeval *to;
- noti_chain_callback cb;
- void *ext;
+struct event_help {
+    int fd;
+    int spfd;
+    int num;
+    enum event_type type;
+    struct timeval *to;
+    noti_chain_callback cb;
+    void *ext;
 };
 
 
 int run_sentinel(struct server *s);
-int run_fetcher(struct fetcher* w);
+int run_fetcher(struct fetcher *w);
 
 
-struct event* create_event(int);
-int add_event(struct event*,struct event_help*);
-int del_event(struct event*,struct event_help*);
-int deinit_event(struct event*,struct event_help*);
-int wait_event(struct event*,struct event_help*);
+struct event *create_event(int);
+int add_event(struct event *, struct event_help *);
+int del_event(struct event *, struct event_help *);
+int deinit_event(struct event *, struct event_help *);
+int wait_event(struct event *, struct event_help *);
 
 #endif

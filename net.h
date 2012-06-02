@@ -51,31 +51,30 @@ typedef struct sockaddr SA;
 
 //the socket information
 //use to identify client and auth server
-struct sockinfo
-{
- struct sockaddr_in addr;
- int fd,buflen,socktype;
- uchar *buf;
+struct sockinfo {
+    struct sockaddr_in addr;
+    int fd, buflen, socktype;
+    uchar *buf;
 };
 
 
-int create_socket(int,int,uchar*);
+int create_socket(int, int, uchar *);
 
-int udp_write_info(struct sockinfo*,int);
-int udp_read_msg(struct sockinfo*,int);
-int tcp_write_info(struct sockinfo *ri,int);
-int tcp_read_dns_msg(struct sockinfo *si,uint,int); //len_msg.
+int udp_write_info(struct sockinfo *, int);
+int udp_read_msg(struct sockinfo *, int);
+int tcp_write_info(struct sockinfo *ri, int);
+int tcp_read_dns_msg(struct sockinfo *si, uint, int);   //len_msg.
 int connect_to(struct sockinfo *);
 
-struct fds* create_fds(int fd,int type);
-int set_time_out(int fd,int sec,int usec);
+struct fds *create_fds(int fd, int type);
+int set_time_out(int fd, int sec, int usec);
 int set_non_block(int fd);
-int set_sock_buff(int fd,int m);
+int set_sock_buff(int fd, int m);
 
 int check_client_addr(struct sockaddr_in *);
-int dbg_print_addr(struct sockaddr_in*);
+int dbg_print_addr(struct sockaddr_in *);
 
 
-int make_bin_from_str(uchar *bin,const uchar *str);
+int make_bin_from_str(uchar * bin, const uchar * str);
 
 #endif

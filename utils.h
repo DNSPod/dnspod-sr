@@ -35,7 +35,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
-#include <stdint.h> //for uint32_t
+#include <stdint.h>             //for uint32_t
 
 //unix system headers
 #include <unistd.h>
@@ -53,77 +53,73 @@ typedef unsigned long ulong;
 typedef uint32_t hashval_t;
 
 
-extern time_t global_now; //defined in init.c
+extern time_t global_now;       //defined in init.c
 
 
-enum utils_numberic
-{
- DEBUG_TIMES = 500,
+enum utils_numberic {
+    DEBUG_TIMES = 500,
 };
 
 
-struct list_node
-{
- void *data;
- struct list_node *next;
+struct list_node {
+    void *data;
+    struct list_node *next;
 };
 
 
 //list header
-struct list
-{
- pthread_mutex_t lock;
- struct list_node *head;
+struct list {
+    pthread_mutex_t lock;
+    struct list_node *head;
 };
 
 
-struct ttlnode
-{
- uint exp; //expired time
- ushort dlen; //data len
- uchar *data; //
+struct ttlnode {
+    uint exp;                   //expired time
+    ushort dlen;                //data len
+    uchar *data;                //
 };
 
 
 int trig_signals(int);
-void drop_privilege(uchar*);
+void drop_privilege(uchar *);
 
-uchar* get_str(uchar *str,int len);
-void put_str(uchar*);
+uchar *get_str(uchar * str, int len);
+void put_str(uchar *);
 
-int dict_comp_uint_equ(void *a,void *b);
-int dict_comp_str_equ(void *a,void *b);
-int rbt_comp_uint_gt(void *v1,void *v2,void *argv);
-int rbt_comp_ttl_gt(void *v1,void *v2,void *argv);
+int dict_comp_uint_equ(void *a, void *b);
+int dict_comp_str_equ(void *a, void *b);
+int rbt_comp_uint_gt(void *v1, void *v2, void *argv);
+int rbt_comp_ttl_gt(void *v1, void *v2, void *argv);
 
-void dns_error(int,char*);
+void dns_error(int, char *);
 int dbg(const char *format, ...);
-void print_hex(uchar *val,int n);
+void print_hex(uchar * val, int n);
 
-int str_to_uchar4(const char *addr,uchar *val);
-int str_to_uchar6(uchar *addr,uchar *val);
-int to_uppercase(uchar *buf,int n);
-int to_lowercase(uchar *buf,int n);
+int str_to_uchar4(const char *addr, uchar * val);
+int str_to_uchar6(uchar * addr, uchar * val);
+int to_uppercase(uchar * buf, int n);
+int to_lowercase(uchar * buf, int n);
 int fix_tail(char *domain);
 
 int empty_function(int);
 void insert_mem_bar(void);
-int test_lock(pthread_mutex_t *lock);
+int test_lock(pthread_mutex_t * lock);
 
-int set_bit(ushort*,int);
-int clr_bit(ushort*,int);
-int tst_bit(const ushort,int);
+int set_bit(ushort *, int);
+int clr_bit(ushort *, int);
+int tst_bit(const ushort, int);
 
 
-int get_random_data(uchar*,int);
+int get_random_data(uchar *, int);
 
-int get_time_usage(struct timeval *tv,int isbegin);
+int get_time_usage(struct timeval *tv, int isbegin);
 int is_uppercase(int c);
 int is_lowercase(int c);
 
 hashval_t uint_hash_function(void *ptr);
 hashval_t nocase_char_hash_function(void *argv);
 
-int slog(uchar *msg,int fd,pthread_mutex_t *lock);
+int slog(uchar * msg, int fd, pthread_mutex_t * lock);
 
 #endif

@@ -38,35 +38,33 @@
 
 struct rbnode;
 struct entry;
-typedef int (comprbt) (void*,void*,void*);
+typedef int (comprbt) (void *, void *, void *);
 
 #define RED (1)
 #define BLACK (0)
 
-struct rbnode
-{
- struct rbnode *parent;
- struct rbnode *left;
- struct rbnode *right;
- int color;
- void *key;
+struct rbnode {
+    struct rbnode *parent;
+    struct rbnode *left;
+    struct rbnode *right;
+    int color;
+    void *key;
 };
 
-struct rbtree
-{
- struct rbnode *root,nil;
- pthread_mutex_t lock;
- uint size;
- comprbt *c;
- void *argv;
+struct rbtree {
+    struct rbnode *root, nil;
+    pthread_mutex_t lock;
+    uint size;
+    comprbt *c;
+    void *argv;
 };
 
 
-struct rbtree* create_rbtree(comprbt *c,void *argv);
-void* delete_node(struct rbtree *rbt,struct rbnode *nd);
-int insert_node(struct rbtree *rbt,struct rbnode *nd);
-struct rbnode* find_node(struct rbtree *rbt,void *key);
-struct rbnode * min_node(struct rbtree *rbt);
+struct rbtree *create_rbtree(comprbt * c, void *argv);
+void *delete_node(struct rbtree *rbt, struct rbnode *nd);
+int insert_node(struct rbtree *rbt, struct rbnode *nd);
+struct rbnode *find_node(struct rbtree *rbt, void *key);
+struct rbnode *min_node(struct rbtree *rbt);
 uint get_rbt_size(struct rbtree *rbt);
 
 //test only.

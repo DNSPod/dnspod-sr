@@ -34,143 +34,134 @@
 #include "io.h"
 
 
-enum
-{
- FETCHER_NUM = 2,
- SERVER_PORT = 53,
+enum {
+    FETCHER_NUM = 2,
+    SERVER_PORT = 53,
 };
 
 
-enum
-{
- QUIZZER_NUM = 2,
+enum {
+    QUIZZER_NUM = 2,
 };
 
 
-enum
-{
- NEW_QUERY = 0,
- PROCESS_QUERY = 1,
- TTL_UPDATE = 3,
+enum {
+    NEW_QUERY = 0,
+    PROCESS_QUERY = 1,
+    TTL_UPDATE = 3,
 };
 
 
 #define SRV_ADDR ("127.0.0.1")
 
-enum
-{
- //MAX_TRY_TIMES = 15,
- REFRESH_INTERVAL = 10,
- AUTH_DB_NUM = 101,
- BIG_MEM_STEP = 2000,
- RANDOM_SIZE = 3000,
- ID_SPACE = 60000,
- AUTH_DATA_LEN = 65528, //for meta data
- EP_TCP_FDS = 65530,
+enum {
+    //MAX_TRY_TIMES = 15,
+    REFRESH_INTERVAL = 10,
+    AUTH_DB_NUM = 101,
+    BIG_MEM_STEP = 2000,
+    RANDOM_SIZE = 3000,
+    ID_SPACE = 60000,
+    AUTH_DATA_LEN = 65528,      //for meta data
+    EP_TCP_FDS = 65530,
 };
 
 
-enum
-{
- LIST_SPACE = 10000,
+enum {
+    LIST_SPACE = 10000,
 };
 
 
-struct author
-{
- int audp, //read and send auth server, private
- cudp, //send to client, share with other author
- idx;
- struct server *s;
- pthread_mutex_t lock;//protect list above
- struct qoutinfo *list[LIST_SPACE];
- //statis
- int qnum;
- int response;
- int qidx;
- int timex;
- ////
- struct list *el;
- time_t lastlog;
- int bdepfd,logfd;
- pthread_mutex_t dblock[AUTH_DB_NUM]; //protect db in disk
- uchar databuffer[AUTH_DATA_LEN];
- uchar randombuffer[RANDOM_SIZE];
- int rndidx;//no lock
- int dataidx;//no lock
- uchar ip[IP_DATA_LEN];//shared by all qoutinfos
- int eptcpfds[EP_TCP_FDS];
- uint rdb;//records in db
- int ddbefore;
- int underattack;
- int tcpinuse;
- struct htable *fwd;
- struct htable *ds;
- int dupbefore; //only used in main thread
- int limits;   //only used in main thread
- int hsidx;
- //statistics
- uint quizz;
- uint drop;
- uint timeout;
+struct author {
+    int audp,                   //read and send auth server, private
+     cudp,                      //send to client, share with other author
+     idx;
+    struct server *s;
+    pthread_mutex_t lock;       //protect list above
+    struct qoutinfo *list[LIST_SPACE];
+    //statis
+    int qnum;
+    int response;
+    int qidx;
+    int timex;
+    ////
+    struct list *el;
+    time_t lastlog;
+    int bdepfd, logfd;
+    pthread_mutex_t dblock[AUTH_DB_NUM];        //protect db in disk
+    uchar databuffer[AUTH_DATA_LEN];
+    uchar randombuffer[RANDOM_SIZE];
+    int rndidx;                 //no lock
+    int dataidx;                //no lock
+    uchar ip[IP_DATA_LEN];      //shared by all qoutinfos
+    int eptcpfds[EP_TCP_FDS];
+    uint rdb;                   //records in db
+    int ddbefore;
+    int underattack;
+    int tcpinuse;
+    struct htable *fwd;
+    struct htable *ds;
+    int dupbefore;              //only used in main thread
+    int limits;                 //only used in main thread
+    int hsidx;
+    //statistics
+    uint quizz;
+    uint drop;
+    uint timeout;
 };
 
 
-struct fetcher
-{
- int idx;
- struct server *s;
- struct msgcache *mc;
- struct list *el;
- int logfd;
- time_t lastlog;
- uchar databuffer[65536];
- int dataidx;
- int qidx;
- //statistics
- uint pkg;
- uint send;
- uint miss;
+struct fetcher {
+    int idx;
+    struct server *s;
+    struct msgcache *mc;
+    struct list *el;
+    int logfd;
+    time_t lastlog;
+    uchar databuffer[65536];
+    int dataidx;
+    int qidx;
+    //statistics
+    uint pkg;
+    uint send;
+    uint miss;
 };
 
 
-struct server
-{
- ushort nquizzer,nfetcher;
- int ludp,ltcp; //out udp
- struct fetcher *fetchers;
- struct author *authors;
- struct list eventlist;
- struct htable *datasets;
- struct htable *forward;
- //struct htable *rootz;
- struct htable *qlist; //same domain same type only query once.
- ulong pkg;
- uchar logpath[255];
- ulong recordsindb;
- struct rbtree *ttlexp;
- //pthread_mutex_t lock;//protect ttlexp
- uint16_t refreshflag;
- time_t lastrefresh;
+struct server {
+    ushort nquizzer, nfetcher;
+    int ludp, ltcp;             //out udp
+    struct fetcher *fetchers;
+    struct author *authors;
+    struct list eventlist;
+    struct htable *datasets;
+    struct htable *forward;
+    //struct htable *rootz;
+    struct htable *qlist;       //same domain same type only query once.
+    ulong pkg;
+    uchar logpath[255];
+    ulong recordsindb;
+    struct rbtree *ttlexp;
+    //pthread_mutex_t lock;//protect ttlexp
+    uint16_t refreshflag;
+    time_t lastrefresh;
 };
 
 
-struct seninfo
-{
- uint len;
- uint type;
- union
- {
-  int fd;
-  struct sockaddr_in addr;
- };
+struct seninfo {
+    uint len;
+    uint type;
+    union {
+        int fd;
+        struct sockaddr_in addr;
+    };
 };
 
 
-void* run_quizzer(void*);
+void *run_quizzer(void *);
 int run_fetcher(struct fetcher *f);
-int write_back_to_client(uchar*,uchar*,ushort,int,struct sockinfo*,uchar*,int);
-int global_cron(struct server*);
-int find_from_db(struct baseinfo *qi,struct fetcher *f);
+int write_back_to_client(uchar *, uchar *, ushort, int, struct sockinfo *,
+                         uchar *, int);
+int global_cron(struct server *);
+int find_from_db(struct baseinfo *qi, struct fetcher *f);
 
 #endif

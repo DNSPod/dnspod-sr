@@ -36,11 +36,11 @@
 #define _IO_H
 
 #include "dns.h"
-#include <sys/stat.h> //read and write files
+#include <sys/stat.h>           //read and write files
 #include <sys/types.h>
 
 
-int read_config(uchar *,struct htable*);
+int read_config(uchar *, struct htable *);
 
 
 #define LOG_INTERVAL (900)
@@ -49,18 +49,18 @@ int read_config(uchar *,struct htable*);
 #define TYPE_QUIZZER (233)
 
 
-enum
-{
- NEVER_EXPIRED1 = 172800,
- NEVER_EXPIRED2 = 518400,
+enum {
+    NEVER_EXPIRED1 = 172800,
+    NEVER_EXPIRED2 = 518400,
 };
 
 
 //idx and lastlog and logfd
 //first argu
-int create_new_log(uchar *prefix,int idx,int type);
-int write_log(int*,time_t*,int,const uchar*,int,struct sockaddr_in*);
-int read_root(struct htable *,struct rbtree*);
-int refresh_records(struct htable*,struct rbtree*);
+int create_new_log(uchar * prefix, int idx, int type);
+int write_log(int *, time_t *, int, const uchar *, int,
+              struct sockaddr_in *);
+int read_root(struct htable *, struct rbtree *);
+int refresh_records(struct htable *, struct rbtree *);
 
 #endif

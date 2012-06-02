@@ -42,45 +42,42 @@
 
 
 ////////////////////////memory chunk/////////////////////////
-struct msgcache
-{
- int head,tail;
- uint size;
- pthread_mutex_t lock; //protect head and tail
- uchar data[0];
+struct msgcache {
+    int head, tail;
+    uint size;
+    pthread_mutex_t lock;       //protect head and tail
+    uchar data[0];
 };
 
 
-struct msgcache* init_msgcache(int n);
-void free_msgcache(struct msgcache*);
+struct msgcache *init_msgcache(int n);
+void free_msgcache(struct msgcache *);
 /////////////////////////////////////////////////////////////
 
 
-enum
-{
- MAX_MSG_SEG = 15,
- MAX_MSG_SIZE = 1500,
+enum {
+    MAX_MSG_SEG = 15,
+    MAX_MSG_SIZE = 1500,
 };
 
 
 //used by memory hash and disk db
-struct mvalue
-{
- uint16_t len;
- uint16_t num;
- uint32_t ttl;
- uint32_t hits;
- uint16_t seg; //when there is no memory segment, seg == 0
- //uint16_t off.
- //something...
+struct mvalue {
+    uint16_t len;
+    uint16_t num;
+    uint32_t ttl;
+    uint32_t hits;
+    uint16_t seg;               //when there is no memory segment, seg == 0
+    //uint16_t off.
+    //something...
 };
 
 
 ///////////////////////memory hash///////////////////////////
-typedef hashval_t (hashfunc) (void *data);
-typedef int (comparefunc) (void*,void*);
-typedef int (delkeyfunc) (void*);
-typedef int (delvalfunc) (void*);
+typedef hashval_t(hashfunc) (void *data);
+typedef int (comparefunc) (void *, void *);
+typedef int (delkeyfunc) (void *);
+typedef int (delvalfunc) (void *);
 
 
 //we can hold at least HASH_TABLE_SIZE * MULTI_HASH elements
@@ -92,37 +89,36 @@ extern const uint MAX_ELE_NUM;
 #define MAX_RECORD_SIZE (1000)
 
 
-struct hentry
-{
- uchar *val;
- struct hentry *next;
- uchar key[0];
+struct hentry {
+    uchar *val;
+    struct hentry *next;
+    uchar key[0];
 };
 
 
-struct hdata
-{
- struct hentry *list;
- pthread_mutex_t lock;
+struct hdata {
+    struct hentry *list;
+    pthread_mutex_t lock;
 };
 
 
-struct htable
-{
- pthread_mutex_t lock;//protect now
- struct hdata *table;
- uchar *edata;
- uint size,mask,now;
- hashfunc *h;
- comparefunc *c;
+struct htable {
+    pthread_mutex_t lock;       //protect now
+    struct hdata *table;
+    uchar *edata;
+    uint size, mask, now;
+    hashfunc *h;
+    comparefunc *c;
 };
 
 
-struct htable* htable_create(hashfunc *h,comparefunc *c,int,int);
-int htable_insert(struct htable*,uchar*,uchar*,int,struct mvalue*);
-struct hentry* htable_delete(struct htable *ht,uchar *key);
-int htable_find(struct htable *ht,uchar *key,uchar *buffer,int vlen,struct mvalue *metadata);
-uint get_pre_mem_hash(void*);
-int find_record_with_ttl(struct htable*,uchar*,uchar*,int,struct mvalue *metadata);
+struct htable *htable_create(hashfunc * h, comparefunc * c, int, int);
+int htable_insert(struct htable *, uchar *, uchar *, int, struct mvalue *);
+struct hentry *htable_delete(struct htable *ht, uchar * key);
+int htable_find(struct htable *ht, uchar * key, uchar * buffer, int vlen,
+                struct mvalue *metadata);
+uint get_pre_mem_hash(void *);
+int find_record_with_ttl(struct htable *, uchar *, uchar *, int,
+                         struct mvalue *metadata);
 
 #endif
