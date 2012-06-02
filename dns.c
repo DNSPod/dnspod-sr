@@ -712,8 +712,9 @@ uchar *fill_rrset_in_msg(struct hlpc *h,uchar *from,uchar *to,int n,uchar *hdr,u
 			 to = fill_name_in_msg(h,to,n);
 			 hf.from = from;
 			 hf.to = to;
-			 to = fill_all_records_in_msg(h,&hf,n);
-			 from += strlen(from) + 1; //ref and name
+			 to = fill_all_records_in_msg(h,&hf,n + i);
+			 from += sizeof(uint16_t); //jump ref
+			 from += strlen(from) + 1; //jump name and tail 0
 			}
 		return to;
 		break;
@@ -1050,6 +1051,8 @@ int transfer_record_to_msg(uchar *buff,uchar *key,uchar *msg,int msglen,uint16_t
  uint16_t segs = ttloff[0],i,*len = NULL,totallen = 0;
  uchar *val = NULL,*itor = NULL;
  struct mvalue *mv = NULL;
+ if(segs == 0 || segs > 100)
+	return -1;
  totallen = msglen;
  totallen = totallen + segs * sizeof(uint16_t) + sizeof(struct mvalue);
  if(totallen > MAX_MSG_SIZE)
