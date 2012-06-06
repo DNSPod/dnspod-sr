@@ -320,6 +320,7 @@ query_from_auth_server(struct qoutinfo *qo, struct author *author)
     struct sockinfo si;
     struct sockaddr_in addr;
     type = qo->td[0];
+    //dbg_print_td(qo->td);
     if (qo->qname == Q_NS)
         type = A;
     qo->mxtry++;
@@ -333,6 +334,7 @@ query_from_auth_server(struct qoutinfo *qo, struct author *author)
             ip += sizeof(struct mvalue);
             for (i = 0; i < mv->num; i++) {
                 make_addr_from_bin(&(si.addr), ip + i * 4);     //ipv4 only
+                //dbg_print_addr((struct sockaddr_in*)&(si.addr));
                 si.addr.sin_port = htons(53);
                 ret = udp_write_info(&si, 0);
                 if (ret > 0)    //success

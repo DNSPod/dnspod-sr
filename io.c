@@ -251,13 +251,17 @@ read_transfer(FILE * fd, struct htable *fwd)
 
 
 int
-read_config(uchar * logpath, struct htable *forward)
+read_config(const uchar *fn, uchar * logpath, struct htable *forward)
 {
     int len, i, n = 0;
     FILE *fd = NULL;
     uchar buf[1024] = { 0 }, *itor = NULL, *tmp = NULL;
-    if ((fd = fopen("sr.conf", "r")) == NULL)
+    if (fn == NULL) {
         return -1;
+    }
+    if ((fd = fopen(fn, "r")) == NULL) {
+        return -1;
+    }
     while (fgets(buf, 1024, fd) != NULL) {
         fix_tail(buf);
         if (strcmp(buf, "xfer:") == 0) {

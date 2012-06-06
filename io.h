@@ -40,7 +40,7 @@
 #include <sys/types.h>
 
 
-int read_config(uchar *, struct htable *);
+int read_config(const uchar *, uchar *, struct htable *);
 
 
 #define LOG_INTERVAL (900)

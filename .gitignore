@@ -1,5 +1,5 @@
 .*
-.gitignore
+!.gitignore
 *~
 
 .*.sw[a-z]

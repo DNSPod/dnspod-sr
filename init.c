@@ -248,6 +248,7 @@ sanity_test(int exi)
 int
 print_basic_debug(void)
 {
+    printf("[DBG:] dnspod-sr is successful running now!!\n");
     printf("[DBG:] max_ele_size is %u - 1808\n", MAX_ELE_NUM);
     printf("[DBG:] server may contain %u useful records\n",
            (MAX_ELE_NUM - 1808) / 3);
@@ -259,31 +260,60 @@ print_basic_debug(void)
 }
 
 
+void
+help(const char *progname)
+{
+	printf("DNSPod recursive dns server\n");
+	printf("version 0.01\n");
+	printf("Usage: %s [-c config]\n", progname);
+}
+
+
 int
 main(int argc, char **argv)
 {
     struct server *s = NULL;
     pthread_t pt;
-    if (argc > 2) {
-        printf("Too many arguments, please check it\n");
-        exit(-1);
-    }
+	int c;
+	const char *config = "sr.conf";
+	while ((c = getopt(argc,argv,"c:vh")) != -1)
+	{
+		switch(c)
+		{
+			case 'c':
+				config = optarg;
+				break;
+			case 'h':
+				help(argv[0]);
+				exit(0);
+				break;
+			case '?':
+				printf("Try -h please\n");
+				exit(0);
+				break;
+			case 'v':
+				printf("dnspod-sr 0.01\n");
+				exit(0);
+				break;
+			default:
+				exit(0);
+				break;
+		}
+	}
     sanity_test(0);
     drop_privilege("./");
     daemonrize(0);
     trig_signals(1);
     global_now = time(NULL);    //for read root.z
     s = server_init();
-    read_config(s->logpath, s->forward);
+    read_config(config, s->logpath, s->forward);
     if (create_fetcher(s, s->nfetcher) < 0)
         dns_error(0, "create worker");
     if (create_author(s, s->nquizzer) < 0)
         dns_error(0, "create author");
     if (pthread_create(&pt, NULL, (void *) time_cron, s) != 0)
         dns_error(0, "time cron error");
-    //pthread_mutex_lock(&s->ttlexp->lock);
     read_root(s->datasets, s->ttlexp);
-    //pthread_mutex_unlock(&s->ttlexp->lock);
     print_basic_debug();
     run_sentinel(s);
     return 0;
