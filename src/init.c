@@ -275,7 +275,7 @@ main(int argc, char **argv)
     struct server *s = NULL;
     pthread_t pt;
 	int c;
-	const char *config = "sr.conf";
+	const char *config = "../sr.conf";
 	while ((c = getopt(argc,argv,"c:vh")) != -1)
 	{
 		switch(c)

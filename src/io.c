@@ -160,7 +160,7 @@ read_records_from_file(const uchar * fn, struct htable *ds,
 int
 read_root(struct htable *ds, struct rbtree *rbt)
 {
-    return read_records_from_file("root.z", ds, rbt);
+    return read_records_from_file("../root.z", ds, rbt);
 }
 
 
