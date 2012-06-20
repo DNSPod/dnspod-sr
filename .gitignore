@@ -18,5 +18,3 @@ Session.vim
 # Executables
 *.out
 
-#log file dir
-log/
