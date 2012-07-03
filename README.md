@@ -42,6 +42,7 @@ dnspod-sr 依托于 DNSPod 多年运营和优化 DNS 服务的经验，针对国
 
 编译源码：
 
+    cd src
     make
 
 运行
