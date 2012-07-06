@@ -52,7 +52,7 @@ enum {
 };
 
 
-#define SRV_ADDR ("127.0.0.1")
+#define SRV_ADDR ("0.0.0.0")
 
 enum {
     //MAX_TRY_TIMES = 15,
