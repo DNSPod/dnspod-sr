@@ -2,13 +2,13 @@
  * All rights reserved.
 
  * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met: 
+ * modification, are permitted provided that the following conditions are met:
  *
  * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer. 
+ *    list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution. 
+ *    and/or other materials provided with the distribution.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -22,28 +22,60 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  * The views and conclusions contained in the software and documentation are those
- * of the authors and should not be interpreted as representing official policies, 
+ * of the authors and should not be interpreted as representing official policies,
  * either expressed or implied, of the FreeBSD Project.
  */
 
 
+#include <unistd.h>
 #include "author.h"
+#include "net.h"
 
+uchar qlist_val[10] = "qlist val";
+int
+find_record_from_mem(uchar * otd, int dlen, int type, struct htable *datasets,
+                     uchar *tdbuffer, uchar * databuffer, hashval_t *hash);
+int
+add_to_quizzer(struct qoutinfo *qo, struct server *s, int qidx);
+
+int add_query_info(int log_type, int idx, uint16_t type)
+{
+    int thread_num = 0;
+    if (log_type == TYPE_FETCHER) {
+        thread_num = idx;
+    } else if (log_type == TYPE_QUIZZER) {
+        thread_num = idx + FETCHER_NUM;
+    } else {
+        return -1;
+    }
+    int query_type_num = query_type_map[type];
+    if (query_type_num < 0) {
+        return -1;
+    }
+    global_out_info->query_info[thread_num].query_num[query_type_num]++;
+    return 0;
+}
 
 //get random number from a buffer
 //it's faster than invoke function random every time
 //no lock, author use it's own data
+union grifa {
+    int val;
+    uchar randombuffer[sizeof(int)];
+};
 int
 get_random_int_from_author(struct author *author)
 {
     int val = 0;
-    char *ret = NULL;
+    union grifa tmp;
     if (author->rndidx + sizeof(int) >= RANDOM_SIZE) {
         //read from /dev/urandom
         get_random_data(author->randombuffer, RANDOM_SIZE);
         author->rndidx = 0;
     }
-    val = *(int *) (author->randombuffer + author->rndidx);
+    memcpy(tmp.randombuffer, author->randombuffer + author->rndidx, sizeof(int));
+    val = tmp.val;
+    //val = *(int *) (author->randombuffer + author->rndidx);
     author->rndidx += sizeof(int);
     return val;
 }
@@ -67,14 +99,14 @@ delete_close_event(int fd, struct fetcher *f)
         return -1;
     }
     memcpy(nd->data, &fd, sizeof(int));
-    pthread_mutex_lock(&el->lock);
+    pthread_spin_lock(&el->lock);
     nd->next = el->head;
     el->head = nd;
-    pthread_mutex_unlock(&el->lock);
+    pthread_spin_unlock(&el->lock);
     return 0;
 }
 
-
+/*
 int
 send_msg_to_client(struct sockinfo *cli, uchar * td, ushort id,
                    uchar * msg)
@@ -85,6 +117,7 @@ send_msg_to_client(struct sockinfo *cli, uchar * td, ushort id,
     uint32_t *pttl = NULL, ttl = 0;
     uint16_t *pttloff = NULL;
     int i;
+    uint16_t temp = 0;
     uchar msgbuf[65536] = { 0 };
     itor = msg + 1;             //databuffer format
     //type.mvalue.msg
@@ -115,104 +148,101 @@ send_msg_to_client(struct sockinfo *cli, uchar * td, ushort id,
     } else {
         //first two bytes are length of msg
         memcpy(msgbuf + 2, itor, mv->len);
-        *(ushort *) msgbuf = htons(mv->len);
+        temp = htons(mv->len);
+        memcpy(msgbuf, &temp, sizeof(uint16_t));
         cli->buflen = mv->len + 2;
         cli->buf = msgbuf;
         tcp_write_info(cli, 0);
     }
     return 0;
 }
+*/
 
 
 //databuffer format
 //type.mvalue.data.type.mvalue.data...
 int
-write_back_to_client(uchar * msgto, uchar * td, ushort id, int dlen,
-                     struct sockinfo *cli, uchar * fr, int vlen)
+// write_back_to_client(uchar * td, enum rrtype otype, uint8_t level, ushort id, int dlen,
+write_back_to_client(mbuf_type *mbuf, uchar * fr, int vlen)
 {
     struct setheader sh = { 0 };        //data in dns header
-    int i, num = 0, main = 0, dnslen = 0;
-    uchar msg[1000] = { 0 }, type;      //if bigger, use TCP
-    uchar *from = fr, *to = msg + 2, *tag;
+    int main_val = 0, dnslen = 0;
+    uchar *msg = mbuf->buf, type;      //if bigger, use TCP
+    uchar *from = fr, *to = msg;
     struct mvalue *mv = NULL;
-    int jump = 0, msglen = 512, ret;
-    uint16_t ttloff[MAX_MSG_SEG + 1] = { 0 };   //zero ele is idx
-    struct hlpc hlp[200] = { 0 };       //p domians to compression
-    hlp[0].name = td + 1;
+    int jump = 0;
+    uint16_t temp = 0;
+    struct hlpc hlp[100];       //p domians to compression
+    hlp[0].name = mbuf->td;
     hlp[0].off = sizeof(dnsheader);
-    hlp[0].level = get_level(hlp[0].name);
+    hlp[0].level = mbuf->lowerdomain.label_count;
     hlp[0].ref = -1;
     hlp[0].mt = 0;
-    jump = sizeof(dnsheader) + dlen + sizeof(qdns);
+    hlp[0].len = mbuf->dlen;
+    jump = sizeof(dnsheader) + mbuf->dlen + sizeof(qdns);
     to = to + jump;
     while (vlen > 1)            //vlen include type.mvalue.data.
     {
         type = from[0];
-        mv = (struct mvalue *) (from + 1);
-        to = fill_rrset_in_msg(hlp, from, to, main, msg + 2, ttloff);
+        mv = (struct mvalue *)(from + 1);
+        to = fill_rrset_in_msg(hlp, from, to, main_val, msg);
         if (to == NULL)
             return -1;
+//         *to = 0;
         vlen = vlen - 1 - mv->len - sizeof(struct mvalue);
         sh.an += mv->num;
         if (type == CNAME)      //cname must be 1
-            main++;             //no all rdata is the cname's
+            main_val++;             //no all rdata is the cname's
         from = from + mv->len + 1 + sizeof(struct mvalue);      // type.mv.len.
     }
-    sh.itor = msg + 2;
-    sh.od = td + 1;
-    sh.id = id;
-    sh.type = td[0];
+    sh.itor = msg;
+    sh.dlen = mbuf->dlen;
+    sh.od = mbuf->td;
+    sh.id = mbuf->id;
+    sh.type = mbuf->qtype;
     fill_header_in_msg(&sh);
-    dnslen = to - (msg + 2);
-    cli->buf = msg + 2;
-    cli->buflen = dnslen;
-    if (cli->socktype == UDP) {
+    dnslen = to - msg;
+    mbuf->buflen = dnslen;
+    mbuf->addr = &(mbuf->caddr);
+    if (mbuf->socktype == UDP) {
         if (dnslen > MAX_UDP_SIZE)
-            send_tc_to_client(td, cli, id);
+            send_tc_to_client(mbuf);
         else
-            udp_write_info(cli, 0);     //ignore send error
+            udp_write_info(mbuf, 0);     //ignore send error
     } else {
-        *(ushort *) msg = htons(dnslen);
-        cli->buflen = dnslen + 2;
-        cli->buf = msg;
-        tcp_write_info(cli, 0);
+        temp = DNS_GET16(dnslen);
+        memcpy(msg - 2, &temp, sizeof(uint16_t));
+        mbuf->buflen = dnslen + 2;
+        mbuf->buf = msg - 2;
+        tcp_write_info(mbuf, 0);
     }
     ////////////////////////////////////////////////////////////
     //key, val, vallen, ttl offset
     //if now + TTL_UPDATE > ttl
     //return
-    ret = transfer_record_to_msg(msgto, td, msg + 2, dnslen, ttloff);
-    if (ret < 0)
-        return -1;
+    /* ret = transfer_record_to_msg(msgto, td, msg + 2, dnslen, ttloff); */
+    /* if (ret < 0) */
+        /* return -1; */
     return 0;
 }
 
 
 //process a segment of data
 int
-passer_related_data(struct sockinfo *si, struct qoutinfo *qo,
+passer_related_data(struct sockinfo *si, mbuf_type *mbuf,
                     struct author *author)
 {
     uchar *buf = si->buf, *tail = NULL;
-    int len = sizeof(struct sockaddr_in), stype = 0, ret, seg;
-    uint idx = 0;
-    uchar dms[50 * DMS_SIZE] = { 0 };
+    int stype = 0/*, ret*//*, seg*/;
     struct rbtree *rbt;
-    int datalen = 0, debugu = 0, i, tag;
-    uchar *tmptail, xtag;
-    ushort n, type, class;
+    int datalen = 0;
+    ushort n;
     struct hlpp hlp;
     dnsheader *hdr = (dnsheader *) buf;
-    ret = check_dns_name(buf + sizeof(dnsheader), &seg);
-    if (ret < 0)
-        return -1;
-    if (check_domain_mask(buf + sizeof(dnsheader), qo->qing) < 0)
-        return -1;
-    hlp.dmsidx = 1;
-    memcpy(dms, qo->qing, strlen(qo->qing) + 1);
-    tail = buf + sizeof(dnsheader) + ret;       //domain len
-    type = ntohs(*(ushort *) tail);
-    class = ntohs(*(ushort *) (tail + 2));
+    
+    tail = buf + sizeof(dnsheader) + si->lowerdomain->label_len[0];       //domain len
+    /* type = ntohs(*(ushort *) tail); */
+    /* class = ntohs(*(ushort *) (tail + 2)); */
     tail = tail + 4;
     datalen = si->buflen;
     rbt = author->s->ttlexp;
@@ -222,7 +252,9 @@ passer_related_data(struct sockinfo *si, struct qoutinfo *qo,
     hlp.rbt = rbt;
     hlp.buf = buf;
     hlp.datalen = datalen;
-    hlp.dms = dms;
+    hlp.tmpbuf = mbuf->tempbuffer;
+    hlp.domainbuf = mbuf->tdbuffer;
+    hlp.dmbuf = mbuf->dmbuffer;
     if (n > 0) {
         hlp.section = AN_SECTION;
         tail = process_rdata(&hlp, tail, n);
@@ -250,27 +282,29 @@ passer_related_data(struct sockinfo *si, struct qoutinfo *qo,
 int
 send_msg_tcp(struct author *author, int fd)
 {
-    struct qoutinfo *qo = NULL;
-    ushort id, type;
-    uchar buffer[512] = { 0 };
-    int len, i, st = 0, ret;
-    struct sockinfo si;
-    ret = author->eptcpfds[fd];
+    ushort id, typeoff, temp, type;
+    uchar *buffer = author->tmpbuffer;
+    int len, ret;
+    mbuf_type *mbuf;
+    uchar *domain;
+    
+    ret = author->eptcpfds[fd].ret;
     if (ret <= 0)
         return -1;
-    qo = author->list[ret];
-    if (qo == NULL)
-        return -1;
-    id = qo->aid;
-    type = qo->td[0];
-    if (qo->qname == Q_NS)
+    domain = author->eptcpfds[fd].domain;
+    id = GET_IDX(ret);
+    typeoff = GET_TYPE(ret);
+    htable_find_list(author->s->qlist, domain, typeoff, id, (uchar **)&mbuf);
+    type = mbuf->qtype;
+    if (mbuf->qname == Q_NS)
         type = A;
-    len = make_dns_msg_for_new(buffer + 2, id, qo->qing, type);
-    *(ushort *) buffer = htons(len);
-    si.fd = fd;
-    si.buf = buffer;
-    si.buflen = len + 2;
-    tcp_write_info(&si, 0);
+    len = make_dns_msg_for_new(buffer + 2, mbuf->aid, mbuf->qing, mbuf->qlen, type);
+    temp = htons(len);
+    memcpy(buffer, &temp, sizeof(ushort));
+    mbuf->fd = fd;
+    mbuf->buf = buffer;
+    mbuf->buflen = len + 2;
+    tcp_write_info(mbuf, 0);
     return 0;
 }
 
@@ -279,18 +313,18 @@ send_msg_tcp(struct author *author, int fd)
 //do connect thing
 //send thing will be done in cb_read_callback xxxx
 int
-query_from_auth_tcp(struct author *author, struct qoutinfo *qo)
+query_from_auth_tcp(struct author *author, mbuf_type *mbuf)
 {
     struct sockinfo si;
-    int addridx = 0, i, st = 0;
+    int i, st = 0;
     uchar *ip = author->ip;
     struct mvalue *mv = NULL;
     mv = (struct mvalue *) ip;
     while (mv->num > 0) {
         ip += sizeof(struct mvalue);
         for (i = 0; i < mv->num; i++) {
-            if (st == (qo->tcpnums - 1)) {
-                si.fd = qo->tcpfd;
+            if (st == (mbuf->tcpnums - 1)) {
+                si.fd = mbuf->tcpfd;
                 make_addr_from_bin(&(si.addr), ip);
                 si.addr.sin_port = htons(53);
                 si.addr.sin_family = AF_INET;
@@ -309,37 +343,38 @@ query_from_auth_tcp(struct author *author, struct qoutinfo *qo)
 
 
 int
-query_from_auth_server(struct qoutinfo *qo, struct author *author)
+query_from_auth_server(mbuf_type *mbuf, struct author *author)
 {
-    ushort id = qo->aid, type;
-    uchar buffer[512] = { 0 };
+    ushort id = mbuf->aid, type;
+    uchar *buffer = mbuf->tempbuffer;
     uchar *ip = author->ip;
     int len, i, st = 1, ret;
-    int maxtry = 0;
     struct mvalue *mv = NULL;
-    struct sockinfo si;
-    struct sockaddr_in addr;
-    type = qo->td[0];
+//     struct sockinfo si;
+    
     //dbg_print_td(qo->td);
-    if (qo->qname == Q_NS)
+    if (mbuf->qname == Q_NS)
         type = A;
-    qo->mxtry++;
-    if (qo->socktype == UDP) {
-        len = make_dns_msg_for_new(buffer, id, qo->qing, type);
-        si.buf = buffer;
-        si.buflen = len;
-        si.fd = author->audp;
+    else
+        type = mbuf->qtype;
+    mbuf->mxtry++;
+    if (mbuf->socktype == UDP) {
+        len = make_dns_msg_for_new(buffer, id, mbuf->qing, mbuf->qlen, type);
+        mbuf->buf = buffer;
+        mbuf->buflen = len;
+        mbuf->fd = author->audp;
         mv = (struct mvalue *) ip;
         while (mv->num > 0) {
             ip += sizeof(struct mvalue);
             for (i = 0; i < mv->num; i++) {
-                make_addr_from_bin(&(si.addr), ip + i * 4);     //ipv4 only
+                make_addr_from_bin(&(mbuf->aaddr), ip + i * 4);     //ipv4 only
                 //dbg_print_addr((struct sockaddr_in*)&(si.addr));
-                si.addr.sin_port = htons(53);
-                ret = udp_write_info(&si, 0);
+                mbuf->aaddr.sin_port = htons(53);
+                mbuf->addr = &(mbuf->aaddr);
+                ret = udp_write_info(mbuf, 0);
                 if (ret > 0)    //success
                     st++;
-                if (st > qo->mxtry)
+                if (st > mbuf->mxtry)
                     return 0;
             }
             ip += mv->len;
@@ -352,57 +387,54 @@ query_from_auth_server(struct qoutinfo *qo, struct author *author)
 }
 
 
-//udpate id, later msg will be droped
-static int
-update_id(struct qoutinfo *qo)
-{
-    if (qo->aid + LIST_SPACE > ID_SPACE)
-        qo->aid = qo->aid % LIST_SPACE;
-    else
-        qo->aid = qo->aid + LIST_SPACE;
-    qo->backid = qo->aid;
-    qo->sq = 1;
-    return 0;
-}
-
-
+//clear the querying bit, free struct
 //clear the querying bit, free struct
 int
-release_qoutinfo(struct author *author, int idx)
+release_qoutinfo(struct author *author, mbuf_type *mbuf, uint32_t idx)
 {
-    int fd = -1, epfd, ret;
-    struct qoutinfo *qo = NULL;
-    struct epoll_event ev;
-    struct htable *qlist = NULL;
-    qo = author->list[idx];
-    epfd = author->bdepfd;
-    qlist = author->s->qlist;
-    if (qo == NULL)
-        return -1;
-    fd = qo->tcpfd;
-    ev.data.fd = fd;
-    if (fd > 0) {
+    int fd = mbuf->tcpfd, epfd;
+    int id, typeoff;
+    uchar *val;
+    
+    if (fd > 0)
+    {
+        struct epoll_event ev = {0};
+        epfd = author->bdepfd;
         author->tcpinuse--;
-        ret = epoll_ctl(epfd, EPOLL_CTL_DEL, fd, &ev);
-        author->eptcpfds[fd] = 0;
+        epoll_ctl(epfd, EPOLL_CTL_DEL, fd, &ev);
+        author->eptcpfds[fd].ret = 0;
         close(fd);
     }
-    if (qo->cli)
-        free(qo->cli);
-    htable_delete(qlist, qo->td);
-    free(qo->td);               //malloced by lock_ad_ad_t_qzer.
-    free(qo);
+    id = GET_IDX(idx);
+    typeoff = GET_TYPE(idx);
+    val = htable_delete_list(author->s->qlist, mbuf->lowerdomain.domain, typeoff, id);
+    assert(val == (void *)mbuf);
+    mbuf_free(mbuf);
+    
     return 0;
 }
 
-
 int
-init_qoutinfo(struct qoutinfo *qo)
+init_qoutinfo(mbuf_type *mbuf)
 {
-    qo->socktype = UDP;
-    qo->mxtry = 0;
-    qo->qns = 1;                //default query ns.
-    qo->sq = 1;                 //default send query
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    
+    mbuf->socktype = UDP;
+    mbuf->mxtry = 0;
+    mbuf->qns = 1;                //default query ns.
+    mbuf->sq = 1;                 //default send query
+    mbuf->stime = tv.tv_sec * 1000 + tv.tv_usec / 1000;;
+    mbuf->tcpfd = 0;
+    mbuf->qtimes = 0;
+    mbuf->tdbuffer = NULL;
+    mbuf->tempbuffer = NULL;
+    mbuf->dmbuffer = NULL;
+    mbuf->ipbuffer = NULL;
+    mbuf->hascname = 0;
+    mbuf->tcpnums = 0;
+    mbuf->stat = NEW_QUERY;
+
     return 0;
 }
 
@@ -412,19 +444,30 @@ init_qoutinfo(struct qoutinfo *qo)
 //0 continue
 //1 normal
 int
-check_enter(struct author *author, uchar * buf, int *idx, int len)
+check_enter(struct author *author, uchar * buf, int *idx, mbuf_type **mbuf, packet_type *lowerdomain)
 {
-    ushort id;
-    int off, ret;
+    int32_t id, typeoff;
+    int /*off, */ret;
     int tx = 0;
-    struct qoutinfo *qo = NULL;
     dnsheader *hdr = (dnsheader *) buf;
-    id = hdr->id;
-    off = id % LIST_SPACE;
-    qo = author->list[off];
-    if (qo == NULL || (qo->aid != id))
-        return 0;               //late
-    *idx = off;
+    *idx = hdr->id;
+    id = GET_IDX(hdr->id);
+    typeoff = GET_TYPE(hdr->id);
+    if (id >= QLIST_TABLE_SIZE || typeoff >= SUPPORT_TYPE_NUM)
+        return -1;
+    ret = check_dns_name(buf + sizeof(dnsheader), lowerdomain);
+    if (ret < 0)
+        return -1;
+    ret = htable_find_list(author->s->qlist, lowerdomain->domain, typeoff, id, (uchar **)mbuf);
+    if (ret < 0)
+        return -1;
+    
+    if ((*mbuf)->stat == NEW_QUERY)
+    {
+        *mbuf = NULL;
+        return -1;
+    }
+    
     //-1 error
     //1  tc
     //0 normal
@@ -436,7 +479,7 @@ check_enter(struct author *author, uchar * buf, int *idx, int len)
         return -2;
     if ((ret == 2) && (tx == 1))        //server error ,continue
         return -3;
-    qo->socktype = UDP;         //default
+    (*mbuf)->socktype = UDP;         //default
     return 1;
 }
 
@@ -449,17 +492,15 @@ check_enter(struct author *author, uchar * buf, int *idx, int len)
 int
 passer_auth_data(struct author *author, uchar * buf, struct sockinfo *si)
 {
-    int idx, ret, pret, xret;
-    uchar td[256] = { 0 }, *val = NULL, *itor = NULL;
-    uint16_t mblen = 0, hash;
-    struct qoutinfo *qo = NULL;
+    int idx, ret, pret;
+    mbuf_type *mbuf = NULL;
     ushort xtype = 0;
     dnsheader *hdr = (dnsheader *) buf;
-    struct mvalue *mvp = NULL, *mv = NULL, mx;
-    struct sockaddr_in *addr = NULL;
+    packet_type lowerdomain;
     //msg buffer
-    uchar mb[MAX_MSG_SIZE + sizeof(uint16_t)] = { 0 };
-    ret = check_enter(author, buf, &idx, si->buflen);
+    ret = check_enter(author, buf, &idx, &mbuf, &lowerdomain);
+    mbuf_free(si->mbuf);
+    si->mbuf = mbuf;
     //we get tc and do NOT update id
     //because some bad servers always return tc
     //thus we has chance to get another answers
@@ -470,103 +511,81 @@ passer_auth_data(struct author *author, uchar * buf, struct sockinfo *si)
         return 0;
     if (ret == -1)              //error msg, delete qoutinfo
         return idx + 1;
-    qo = author->list[idx];
-    qo->mxtry--;
+    mbuf->mxtry--;
     if (ret == -3)              //format error, server refused, error...
     {
-        qo->qtimes++;
+        mbuf->qtimes++;
         return 0;
     }
-    pret = passer_related_data(si, qo, author);
+    si->lowerdomain = &lowerdomain;
+    pret = passer_related_data(si, mbuf, author);
     if (pret < 0)
         return 0;               //error msg,continue
-    update_id(qo);
-    if (pret == CNAME && qo->td[0] == CNAME) {
-        if (qo->cli != NULL) {
-            *(ushort *) buf = qo->cid;
-            qo->cli->buf = buf;
-            qo->cli->buflen = si->buflen;
+    mbuf->fd = author->s->ludp;
+    mbuf->addr = &(mbuf->caddr);
+    if (pret == CNAME && mbuf->qtype == CNAME) {
+        if (mbuf->fd != -1) {
+            *(ushort *) buf = mbuf->cid;
+            mbuf->buf = buf;
+            mbuf->buflen = si->buflen;
+            
             if (si->buflen > MAX_UDP_SIZE)
-                send_tc_to_client(qo->td, qo->cli, qo->cid);
+                send_tc_to_client(mbuf);
             else {
-                udp_write_info(qo->cli, 0);     //cname..
-                write_log(&author->logfd, &author->lastlog, author->idx,
-                          qo->td + 1, qo->td[0], &qo->cli->addr);
+                udp_write_info(mbuf, 0);     //cname..
+                write_log(author->loginfo, author->idx,
+                          mbuf->td, mbuf->dlen, mbuf->qtype, mbuf->addr);
             }
         }
         return idx + 1;
     }
-    if (pret == CNAME || qo->qname != Q_DOMAIN) {
-        qo->stat = PROCESS_QUERY;
-        qo->socktype = UDP;     //if prev we use tcp, use udp again
+    if (pret == CNAME || mbuf->qname != Q_DOMAIN) {
+        mbuf->stat = PROCESS_QUERY;
+        mbuf->socktype = UDP;     //if prev we use tcp, use udp again
         return 0;
     }
     if ((pret == SOA) || (ntohs(hdr->ancount) > 0)) {
-        if (qo->cli != NULL) {
-            if (qo->hascname == 0) {
-                *(ushort *) buf = qo->cid;      //no need to htons
-                qo->cli->buf = buf;
-                qo->cli->buflen = si->buflen;
+        if (mbuf->fd != -1) {
+            if (mbuf->hascname == 0) {
+                *(ushort *) buf = mbuf->cid;      //no need to htons
+                mbuf->buf = buf;
+                mbuf->buflen = si->buflen;
                 if (si->buflen > MAX_UDP_SIZE)
-                    send_tc_to_client(qo->td, qo->cli, qo->cid);
+                    send_tc_to_client(mbuf);
                 else {
-                    udp_write_info(qo->cli, 0);
-                    write_log(&author->logfd, &author->lastlog,
-                              author->idx, qo->td + 1, qo->td[0],
-                              &qo->cli->addr);
+                    udp_write_info(mbuf, 0);
+                    write_log(author->loginfo,
+                              author->idx, mbuf->td, mbuf->dlen, mbuf->qtype,
+                              mbuf->addr);
                 }
             } else              //has a cname,put the origin domain first
             {
                 if (pret == SOA) {
-                    xtype = qo->td[0];
-                    qo->td[0] = CNAME;
+                        xtype = CNAME;
                 }
+                else
+                    xtype = mbuf->qtype;
                 ret =
-                    find_record_from_mem(qo->td, qo->dlen,
+                    find_record_from_mem(mbuf->td, mbuf->dlen, xtype, 
                                          author->s->datasets,
-                                         author->databuffer);
-                if (pret == SOA)
-                    qo->td[0] = xtype;
+                                         author->tmpbuffer,
+                                         author->databuffer,
+                                         &(mbuf->lowerdomain.hash[0]));
                 if (ret > 0) {
-                    mv = (struct mvalue *) (author->databuffer + 1);
                     author->response++;
-                    if (qo->cli) {
-                        xret =
-                            write_back_to_client(mb, qo->td, qo->cid,
-                                                 qo->dlen, qo->cli,
-                                                 author->databuffer, ret);
-                        if (xret == 0) {
-                            mvp = (struct mvalue *) mb;
-                            val =
-                                malloc(mvp->len + sizeof(struct mvalue) +
-                                       mvp->seg * sizeof(uint16_t));
-                            if (val != NULL) {
-                                memcpy(val, mb, sizeof(struct mvalue));
-                                mvp = (struct mvalue *) val;
-                                mvp->ttl = mv->ttl;
-                                mvp->hits = mv->hits;
-                                mvp->num = 0;   //not used
-                                itor = val + sizeof(struct mvalue);
-                                //copy ttloff and msg
-                                memcpy(itor, mb + sizeof(struct mvalue),
-                                       sizeof(uint16_t) * mvp->seg +
-                                       mvp->len);
-                                hash = get_pre_mem_hash(qo->td);
-                                htable_insert(author->s->datasets + hash, qo->td, val, 1, &mx); //replace
-                            }
-                            addr = &(qo->cli->addr);
-                        }
+                    if (mbuf->fd != -1) {
+                        mbuf->buf = mbuf->data + 2;
+                        write_back_to_client(mbuf, author->databuffer, ret);
                     }
-                    write_log(&author->logfd, &author->lastlog,
-                              author->idx, qo->td + 1, qo->td[0], addr);
+                    write_log(author->loginfo, author->idx, mbuf->td, mbuf->dlen, mbuf->qtype, mbuf->addr);
                 }
             }
         }
         //else printf("update record\n");
         return idx + 1;
     }
-    qo->stat = PROCESS_QUERY;   //no need to find_addr in launch_new_qu
-    qo->socktype = UDP;
+    mbuf->stat = PROCESS_QUERY;   //no need to find_addr in launch_new_qu
+    mbuf->socktype = UDP;
     return 0;
 }
 
@@ -575,116 +594,146 @@ passer_auth_data(struct author *author, uchar * buf, struct sockinfo *si)
 int
 cb_read_auth(struct epoll_event *ev, struct sockinfo *si)
 {
-    int ret, tag = 1, szhdr = sizeof(dnsheader);
-    si->fd = ev->data.fd;
-    si->buflen = BIG_MEM_STEP - 2;
-    if (si->socktype == TCP)
-        ret = tcp_read_dns_msg(si, BIG_MEM_STEP - 2, 0);
-    else
-        ret = udp_read_msg(si, 0);      //epoll return and no blocked here
-    if (ret < szhdr)
+    int ret, szhdr = sizeof(dnsheader);
+    mbuf_type *mbuf = mbuf_alloc();
+    if (NULL == mbuf)
         return -1;
-    si->buflen = ret;
+    mbuf->fd = ev->data.fd;
+    mbuf->buf = si->buf;
+    mbuf->buflen = BIG_MEM_STEP;
+    mbuf->addr = &(mbuf->aaddr);
+    if (si->socktype == TCP)
+        ret = tcp_read_dns_msg(mbuf, MBUF_DATA_LEN - 2, 0);
+    else
+        ret = udp_read_msg(mbuf, 0);      //epoll return and no blocked here
+    if (ret < szhdr)
+    {
+        mbuf_free(mbuf);
+        return -1;
+    }
+    si->buflen = mbuf->buflen = ret;
+    si->mbuf = mbuf;
     return ret;
 }
 
-
 int
-launch_new_query(struct author *author, int idrowback)
+launch_new_query(struct author *author/*, int idrowback*/)
 {
-    const int querystep = 200;
     int new_query = 0, i, start, end, ret;
-    struct qoutinfo *qo = NULL;
-    uchar *itor = NULL;
+    mbuf_type *mbuf;
     struct timeval tv;
-    uint msnow = 0;
-    struct mvalue *mv = NULL;
-    start = 0;
-    end = LIST_SPACE;
+    uint64_t msnow = 0;
+    int slotoff, typeoff;
+    start = author->start;
+    end = author->end;
     gettimeofday(&tv, NULL);
+    msnow = tv.tv_sec * 1000 + tv.tv_usec / 1000;
     for (i = start; i < end; i++) {
-        pthread_mutex_lock(&author->lock);
-        if (author->list[i] != NULL
-            && author->list[i]->qtimes > MAX_TRY_TIMES) {
-            release_qoutinfo(author, i);
-            author->list[i] = NULL;
-        }
-        if (author->list[i] != NULL) {
-            pthread_mutex_unlock(&author->lock);
-            qo = author->list[i];
-            if (author->list[i]->stat == NEW_QUERY)     //new
+        slotoff = 0;
+        typeoff = 0;
+        ret = htable_find_list_io(author->s->qlist, i, slotoff, &typeoff, (uchar **)&mbuf);
+        while (ret >= 0)
+        {
+            if (ret > 0)
             {
-                qo->aid = idrowback * LIST_SPACE + i;   //start id
-                qo->backid = qo->aid;
-                qo->mxtry = 0;
-                if (qo->cli)
-                    qo->cli->fd = author->cudp;
-                new_query++;
-                qo->stat = PROCESS_QUERY;
+                if (mbuf->qtimes > MAX_TRY_TIMES || (msnow - mbuf->stime) > 5000)
+                {
+                    release_qoutinfo(author, mbuf, GET_AID(i, typeoff));
+                }
+                else
+                {
+                    if (mbuf->stat == NEW_QUERY)
+                    {
+                        assert(i < QLIST_TABLE_SIZE && typeoff < SUPPORT_TYPE_NUM);
+                        mbuf->aid = GET_AID(i, typeoff);   //start id
+                        mbuf->backid = mbuf->aid;
+                        mbuf->mxtry = 0;
+                        if (mbuf->fd != -1)
+                            mbuf->fd = author->cudp;
+                        mbuf->tdbuffer = author->tdbuffer;
+                        mbuf->tempbuffer = author->tempbuffer;
+                        mbuf->dmbuffer = author->dmbuffer;
+                        mbuf->ipbuffer = author->ipbuffer;
+                        new_query++;
+                        mbuf->stat = PROCESS_QUERY;
+                    }
+                    if ((msnow - mbuf->stime) > 1000 && (mbuf->sq == 0))
+                    {
+                        mbuf->sq = 1;
+                    }
+                    if ((mbuf->socktype == UDP) && (mbuf->sq == 1)) {
+                        ret =
+                            find_addr(author->s->forward, author->s->datasets, mbuf,
+                                    author->ip, author->s->is_forward);
+                        if (mbuf->stat == PROCESS_QUERY && ret == 0)
+                            query_from_auth_server(mbuf, author);
+                        mbuf->qtimes++;
+//                         mbuf->stime = msnow;
+                    }
+                }
+                
             }
-            if ((msnow - qo->stime) > 1000 && (qo->sq == 0))
-                qo->sq = 1;
-            if ((qo->socktype == UDP) && (qo->sq == 1)) {
-                ret =
-                    find_addr(author->s->forward, author->s->datasets, qo,
-                              author->ip);
-                if (qo->stat == PROCESS_QUERY && ret == 0)
-                    query_from_auth_server(qo, author);
-                qo->qtimes++;
-                qo->stime = msnow;
+            if (ret == 0 || (typeoff == (SUPPORT_TYPE_NUM- 1)))
+            {
+                slotoff++;
+                typeoff = 0;
             }
-        } else
-            pthread_mutex_unlock(&author->lock);
+            else
+                typeoff++;
+            
+            mbuf = NULL;
+            ret = htable_find_list_io(author->s->qlist, i, slotoff, &typeoff, (uchar **)&mbuf);
+        }
     }
+
     return new_query;
 }
 
 
 int
-after_pass_data(int ret, struct author *author)
+after_pass_data(int ret, struct author *author, mbuf_type *mbuf)
 {
-    struct rbnode *pn;
-    struct epoll_event ev;
-    struct qoutinfo *qo = NULL;
-    int i, idx, fd;
+    struct epoll_event ev = {0};
+    int fd;
     if (ret == 0)
         return 0;
+    if (mbuf == NULL)
+        return -1;
     if (ret < 0)                //tcp needed.
     {
         //printf("tcp needed\n");
         ret = ret + 1;
         ret = -ret;
-        qo = author->list[ret];
-        if (qo == NULL)
-            return -1;
-        if ((qo->tcpfd > 0) && ((qo->qtimes % (MAX_TRY_TIMES / 3)) == 0))       //retry tcp
+        
+        if ((mbuf->tcpfd > 0) && ((mbuf->qtimes % (MAX_TRY_TIMES / 3)) == 0))       //retry tcp
         {
-            ev.data.fd = qo->tcpfd;
-            qo->tcpfd = 0;
+            ev.data.fd = mbuf->tcpfd;
+            mbuf->tcpfd = 0;
             author->tcpinuse--;
             epoll_ctl(author->bdepfd, EPOLL_CTL_DEL, ev.data.fd, &ev);
             close(ev.data.fd);
         }
-        if (qo->tcpfd > 0)      //processing...
+        if (mbuf->tcpfd > 0)      //processing...
             return 0;
         //restart..
         if (author->tcpinuse > (LIST_SPACE / 10))
             fd = -1;            //too many tcps
         else {
-            qo->tcpnums++;
+            mbuf->tcpnums++;
             fd = socket(AF_INET, SOCK_STREAM, 0);
         }
         if (fd > 0) {
             author->tcpinuse++;
-            qo->tcpfd = fd;
-            qo->socktype = TCP;
+            mbuf->tcpfd = fd;
+            mbuf->socktype = TCP;
             ev.data.fd = fd;
             ev.events = EPOLLOUT;       //wait for ready to write
-            author->eptcpfds[fd] = ret;
+            author->eptcpfds[fd].ret = ret;
+            memcpy(author->eptcpfds[fd].domain, mbuf->td, mbuf->dlen);
             set_non_block(fd);
             set_recv_timeout(fd, 0, 500);       //half second
             epoll_ctl(author->bdepfd, EPOLL_CTL_ADD, fd, &ev);
-            query_from_auth_tcp(author, qo);
+            query_from_auth_tcp(author, mbuf);
             return 0;
         } else
             ret++;              //fix ret value, for deleting afterword
@@ -693,13 +742,7 @@ after_pass_data(int ret, struct author *author)
     if (ret > 0)                //delete qoutinfo
     {
         ret = ret - 1;          //minus the 1 p_a_d added
-        pthread_mutex_lock(&author->lock);
-        release_qoutinfo(author, ret);
-        if (author->list[ret] != NULL) {
-            author->list[ret] = NULL;
-            author->qnum--;
-        }
-        pthread_mutex_unlock(&author->lock);
+        release_qoutinfo(author, mbuf, ret);
     }
     return 0;
 }
@@ -710,10 +753,10 @@ int
 handle_back_event(struct author *author)
 {
     int infinite = 1, ret, i, epfd = author->bdepfd;
-    struct sockinfo si = { 0 };
-    int bf = 0, record = 0, rx;
-    struct epoll_event ev, e[BACK_EVENT] = { 0 };
-    uchar buf[BIG_MEM_STEP] = { 0 };
+    struct sockinfo si = {{0}};
+    int bf = 0, rx;
+    struct epoll_event ev = {0}, *e = author->e;
+    uchar *buf = author->tmpbuffer;
     while (1 && infinite) {
         bf = author->audp;
         ret = epoll_wait(epfd, e, BACK_EVENT, 500);     // 1000 is 1s
@@ -725,7 +768,7 @@ handle_back_event(struct author *author)
                 si.socktype = UDP;
                 while (cb_read_auth(e + i, &si) > 0) {
                     rx = passer_auth_data(author, buf, &si);
-                    after_pass_data(rx, author);
+                    after_pass_data(rx, author, si.mbuf);
                 }
             } else if (e[i].data.fd > 0)        //  fd 0 will be ignored
             {
@@ -741,13 +784,14 @@ handle_back_event(struct author *author)
                     si.socktype = TCP;
                     rx = cb_read_auth(e + i, &si);
                     if (rx < 0) {
-                        author->eptcpfds[e[i].data.fd] = 0;
+                        author->eptcpfds[e[i].data.fd].ret = 0;
                         close(e[i].data.fd);
                         ev.data.fd = e[i].data.fd;
+                        mbuf_free(si.mbuf);
                         epoll_ctl(epfd, EPOLL_CTL_DEL, ev.data.fd, &ev);
                     } else {
                         rx = passer_auth_data(author, buf, &si);
-                        after_pass_data(rx, author);
+                        after_pass_data(rx, author, si.mbuf);
                     }
                 } else          //error
                 {
@@ -760,7 +804,7 @@ handle_back_event(struct author *author)
                     //EPOLLHUP = 0x010,
                     ev.data.fd = e[i].data.fd;
                     rx = epoll_ctl(epfd, EPOLL_CTL_DEL, e[i].data.fd, &ev);
-                    author->eptcpfds[e[i].data.fd] = 0;
+                    author->eptcpfds[e[i].data.fd].ret = 0;
                     close(e[i].data.fd);
                     //printf("epoll fd=%d,events=0x%x,rx=%d\n",e[i].data.fd,e[i].events,rx);
                 }
@@ -779,20 +823,10 @@ handle_back_event(struct author *author)
 int
 dup_data_into_db(struct author *a)
 {
-    uint i, hits = 10, hs, limit;
-    //static uint dbidx = 0,dboff = 0;
-    uchar buffer[2000] = { 0 };
-    uchar key[514] = { 0 };
-    int ret, dupx = 0;
-    time_t now;
-    struct rbnode *pn = NULL;
+    uint i, limit;
     struct rbtree *rbt = a->s->ttlexp;
-    uint num, dboff, dbidx, slotoff, imgidx = 0;
-    struct hentry *he;
-    uchar *val = NULL;
-    struct mvalue *mv = NULL, tmp;
-    struct ttlnode tn, *ptn;
-    now = global_now;
+    uint dboff, dbidx/*, slotoff*/;
+
     if (a->dupbefore == 1) {
         a->limits += 5;
         if (a->limits > 1000)
@@ -806,50 +840,8 @@ dup_data_into_db(struct author *a)
     for (i = 0; i < HASH_TABLE_SIZE; i++) {
         dbidx = i;
         dboff = a->hsidx;
-        slotoff = 0;
-        ret =
-            htable_find_io(a->s->datasets + dboff, dbidx, slotoff, buffer,
-                           key);
-        while (ret > 0) {
-            slotoff++;
-            mv = (struct mvalue *) buffer;
-            //if mv ttl near "now", it may has started "ttl update"
-            //mv->ttl means ttl expired time
-            //TTL_UPDATE is 3
-            //if ttl was 12, now was 11, don't delete
-            //if ttl was 12, now was 7, delete it
-            if ((mv->ttl > (now + TTL_UPDATE + 1)) && (mv->hits < limit)) {
-                he = htable_delete(a->s->datasets + dboff, key);
-                if (he != NULL) {
-                    tn.data = key;
-                    tn.exp = mv->ttl;
-                    tn.dlen = strlen(key) + 1;
-                    pthread_mutex_lock(&rbt->lock);
-                    pn = find_node(rbt, &tn);
-                    if (pn != NULL) {
-                        ptn = delete_node(rbt, pn);
-                        if (ptn != NULL) {
-                            //printf("delete true\n");
-                            free(ptn->data);
-                            free(ptn);
-                        } else
-                            printf("delete error\n");
-                    } else {
-                        printf("find error\n");
-                        dbg_print_td(key);
-                    }
-                    pthread_mutex_unlock(&rbt->lock);
-                    free(he->val);      //dup to disk do not need memory
-                    free(he);
-                }
-                dupx++;
-            }
-            //else
-            //printf("ttl %u,now %lu,hits %u\n",mv->ttl,now,mv->hits);
-            ret =
-                htable_find_io(a->s->datasets + dboff, dbidx, slotoff,
-                               buffer, key);
-        }
+        htable_find_io(a->s->datasets + dboff, dbidx,/* slotoff, buffer,
+                        key, &dlen, 1999, */limit, rbt, TTL_UPDATE);
     }
     a->dupbefore = 1;
     return 0;
@@ -863,9 +855,9 @@ check_mm_cache(struct author *author)
     int i;
     static int tmx = 0;
     for (i = 0; i < MULTI_HASH; i++) {
-        pthread_mutex_lock(&author->s->datasets[i].lock);
+        pthread_spin_lock(&author->s->datasets[i].lock);
         total += author->s->datasets[i].now;
-        pthread_mutex_unlock(&author->s->datasets[i].lock);
+        pthread_spin_unlock(&author->s->datasets[i].lock);
     }
     tmx++;
     if (total > MAX_ELE_NUM)
@@ -877,19 +869,20 @@ check_mm_cache(struct author *author)
 int
 check_ttl_expire(struct author *author)
 {
-    struct mvalue *mv = NULL, mx;
     time_t now;
     struct ttlnode *tn = NULL;
     struct rbnode *pn = NULL;
-    struct qoutinfo qo = { 0 };
-    struct htable *ds = NULL;
-    int rnd = 0, ret = -1;
+    mbuf_type *mbuf;
+    int ret = -1;
     struct rbtree *rbt = NULL;
-    uint idx = 0;
+    
+    mbuf = mbuf_alloc();
+    if (NULL == mbuf)
+        return -1;
     now = global_now;
-    ds = author->s->datasets;
+    /* ds = author->s->datasets; */
     rbt = author->s->ttlexp;
-    pthread_mutex_lock(&rbt->lock);
+    pthread_spin_lock(&rbt->lock);
     pn = min_node(rbt);
     while (pn != NULL) {
         tn = pn->key;
@@ -897,41 +890,47 @@ check_ttl_expire(struct author *author)
         //if exp was 12, now was 5, break
         if (tn->exp > (now + TTL_UPDATE))       //3 secs after it will not expire
             break;
-        //dbg_print_td(tn->data);
+        /* printf("ttl refresh "); */
+        /* dbg_print_td(tn->data); */
         tn = delete_node(rbt, pn);
-        pthread_mutex_unlock(&rbt->lock);
+        pthread_spin_unlock(&rbt->lock);
         if (tn != NULL) {
-            //ret = find_record_with_ttl(ds,tn->data,NULL,0,&mx);
-            //no buffer, if successed, ret would be 1 
-            //if(ret > 0)
+            mbuf->qname = tn->type;     //type
+            mbuf->qtype = tn->type;
+            mbuf->dlen = tn->dlen;
+            memcpy(&(mbuf->lowerdomain), tn->lowerdomain, sizeof(packet_type));
+            int i;
+            for (i = 0; i < tn->lowerdomain->label_count; i++)
             {
-                ret = htable_insert(author->s->qlist, tn->data, NULL, 0, NULL); //not replace
-                if (ret == 0)   //we could insert more ttls of one same record
+                mbuf->lowerdomain.label[i] = mbuf->lowerdomain.domain + mbuf->lowerdomain.label_offsets[i];
+            }
+            mbuf->qhash = &(mbuf->lowerdomain.hash[0]);
+            mbuf->td = mbuf->lowerdomain.domain;
+            mbuf->qing = mbuf->td;
+            mbuf->qlen = mbuf->dlen;
+            mbuf->cid = 0;
+            mbuf->fd = -1;
+            init_qoutinfo(mbuf);
+            ret = htable_insert_list(author->s->qlist, tn->data, tn->dlen, tn->type, (uchar *)mbuf, 0, NULL, tn->hash); //not replace
+            if (0 == ret)
+            {
+                mbuf = mbuf_alloc();
+                if (NULL == mbuf)
                 {
-                    qo.qname = tn->data[0];     //type
-                    qo.td = tn->data;
-                    qo.dlen = strlen(tn->data) + 1;
-                    qo.qing = qo.td + 1;
-                    qo.cid = 0;
-                    qo.cli = NULL;
-                    rnd = random() % QUIZZER_NUM;
-                    init_qoutinfo(&qo);
-                    if (add_to_quizzer(&qo, author->s, rnd) < 0)        //fail
-                    {
-                        //printf("add to quizzer error\n");
-                        htable_delete(author->s->qlist, tn->data);
-                    }
-                } else
-                    htable_insert(author->s->qlist, tn->data, NULL, 0,
-                                  NULL);
+                    free(tn->lowerdomain);
+                    free(tn);
+                    return -1;
+                }
             }
             //else querying lost
+            free(tn->lowerdomain);
             free(tn);
         }
-        pthread_mutex_lock(&rbt->lock);
+        pthread_spin_lock(&rbt->lock);
         pn = min_node(rbt);
     }
-    pthread_mutex_unlock(&rbt->lock);
+    mbuf_free(mbuf);
+    pthread_spin_unlock(&rbt->lock);
     return 0;
 }
 
@@ -959,23 +958,17 @@ void *
 run_quizzer(void *arg)
 {
     struct author *author = (struct author *) arg;
-    struct qoutinfo *qo = NULL;
-    struct sockinfo si;
-    struct epoll_event ev, e[BACK_EVENT] = { 0 };
-    int range = 0, i, j, idrowback = 0, ret, torec, epfd;
-    uint nowtime, keyval, intime, delid;
-    ushort id;
+    int /*idrowback = 0,*/ epfd;
     pthread_detach(pthread_self());
     epfd = add_backdoor(author->audp);
     author->bdepfd = epfd;
     while (1) {
-        idrowback = random() % (ID_SPACE / LIST_SPACE);
-        launch_new_query(author, idrowback);
+        launch_new_query(author);
         handle_back_event(author);
         if (author->idx == 0)   //main author
         {
             check_ttl_expire(author);
-            if (check_mm_cache(author) == 1)
+            if (check_mm_cache(author) == 1) 
                 dup_data_into_db(author);
             else
                 author->dupbefore = 0;
@@ -990,66 +983,75 @@ int
 add_to_quizzer(struct qoutinfo *qo, struct server *s, int qidx)
 {
     int i, j, randomoff = 0;
-    struct qoutinfo *qi = NULL;
-    qi = malloc(sizeof(struct qoutinfo));
-    if (qi == NULL)
-        return -1;
-    memset(qi, 0, sizeof(struct qoutinfo));
-    *qi = *qo;
-    qi->cli = NULL;
-    if (qo->cli != NULL) {
-        qi->cli = malloc(sizeof(struct sockinfo));
-        if (qi->cli == NULL) {
-            free(qi);
-            return -1;
-        }
-        memcpy(qi->cli, qo->cli, sizeof(struct sockinfo));
-    }
+    struct qoutinfo *qi = qo;
+
     qi->stat = NEW_QUERY;
     randomoff = random() % LIST_SPACE;
     for (j = qidx; j < QUIZZER_NUM; j++) {
-        pthread_mutex_lock(&s->authors[j].lock);
+//         pthread_mutex_lock(&s->authors[j].lock);
         for (i = randomoff; i < LIST_SPACE; i++) {
             if (s->authors[j].list[i] == NULL) {
+                pthread_spin_lock(&s->authors[j].lock);
+                if (s->authors[j].list[i] != NULL)
+                {
+                    pthread_spin_unlock(&s->authors[j].lock);
+                    continue;
+                }
                 s->authors[j].list[i] = qi;
                 s->authors[j].qnum++;
-                pthread_mutex_unlock(&s->authors[j].lock);
+                pthread_spin_unlock(&s->authors[j].lock);
                 return 0;
             }
         }
         for (i = 0; i < randomoff; i++) {
             if (s->authors[j].list[i] == NULL) {
+                pthread_spin_lock(&s->authors[j].lock);
+                if (s->authors[j].list[i] != NULL)
+                {
+                    pthread_spin_unlock(&s->authors[j].lock);
+                    continue;
+                }
                 s->authors[j].list[i] = qi;
                 s->authors[j].qnum++;
-                pthread_mutex_unlock(&s->authors[j].lock);
+                pthread_spin_unlock(&s->authors[j].lock);
                 return 0;
             }
         }
-        pthread_mutex_unlock(&s->authors[j].lock);
+//         pthread_mutex_unlock(&s->authors[j].lock);
     }
     for (j = 0; j < qidx; j++) {
-        pthread_mutex_lock(&s->authors[j].lock);
+//         pthread_mutex_lock(&s->authors[j].lock);
         for (i = randomoff; i < LIST_SPACE; i++) {
             if (s->authors[j].list[i] == NULL) {
+                pthread_spin_lock(&s->authors[j].lock);
+                if (s->authors[j].list[i] != NULL)
+                {
+                    pthread_spin_unlock(&s->authors[j].lock);
+                    continue;
+                }
                 s->authors[j].list[i] = qi;
                 s->authors[j].qnum++;
-                pthread_mutex_unlock(&s->authors[j].lock);
+                pthread_spin_unlock(&s->authors[j].lock);
                 return 0;
             }
         }
         for (i = 0; i < randomoff; i++) {
             if (s->authors[j].list[i] == NULL) {
+                pthread_spin_lock(&s->authors[j].lock);
+                if (s->authors[j].list[i] != NULL)
+                {
+                    pthread_spin_unlock(&s->authors[j].lock);
+                    continue;
+                }
                 s->authors[j].list[i] = qi;
                 s->authors[j].qnum++;
-                pthread_mutex_unlock(&s->authors[j].lock);
+                pthread_spin_unlock(&s->authors[j].lock);
                 return 0;
             }
         }
-        pthread_mutex_unlock(&s->authors[j].lock);
+//         pthread_mutex_unlock(&s->authors[j].lock);
     }
-    if (qo->cli != NULL)
-        free(qi->cli);
-    free(qi);
+    
     return -1;
 }
 
@@ -1058,37 +1060,27 @@ add_to_quizzer(struct qoutinfo *qo, struct server *s, int qidx)
 //if we want to add them in list
 //alloc memory with ad_t_qzzer
 int
-lock_and_add_to_quizz(struct baseinfo *qi, struct sockinfo *cli,
-                      struct fetcher *f)
+lock_and_add_to_quizz(mbuf_type *mbuf, struct fetcher *f)
 {
-    struct qoutinfo qo = { 0 };
-    uchar kbuffer[270] = { 0 };
     int ret;
-    static int a[2] = { 0 };
-    make_type_domain(qi->origindomain, strlen(qi->origindomain) + 1,
-                     qi->type, kbuffer);
-    ret = htable_insert(f->s->qlist, kbuffer, NULL, 0, NULL);   //has same one, qeurying
+    
+    if (mbuf->dlen < 1)
+        return -1;
+    
+    mbuf->qname = mbuf->qtype;
+    mbuf->td = mbuf->lowerdomain.domain;
+    mbuf->qing = mbuf->td;        //at first
+    mbuf->qhash = &(mbuf->lowerdomain.hash[0]);
+    mbuf->qlen = mbuf->dlen;
+    mbuf->cid = mbuf->id;
+    init_qoutinfo(mbuf);
+
+    ret = htable_insert_list(f->s->qlist, mbuf->lowerdomain.domain, mbuf->dlen, mbuf->qtype, (uchar *)mbuf, 0, NULL, &(mbuf->lowerdomain.hash[0]));   //has same one, qeurying
     if (ret != 0)
-        return -1;
-    qo.qname = qi->type;
-    qo.dlen = qi->dlen;
-    if (qi->dlen < 1)
-        return -1;
-    qo.td = malloc(qi->dlen + 1);
-    if (qo.td == NULL)
-        return -1;
-    qo.td[0] = qi->type;
-    memcpy(qo.td + 1, qi->origindomain, qi->dlen);
-    qo.qing = qo.td + 1;        //at first
-    qo.cli = cli;
-    qo.cid = qi->id;
-    init_qoutinfo(&qo);
-    if (add_to_quizzer(&qo, f->s, f->qidx) < 0) {
-        f->qidx = (f->qidx + 1) % QUIZZER_NUM;
-        htable_delete(f->s->qlist, kbuffer);
+    {
         return -1;
     }
-    f->qidx = (f->qidx + 1) % QUIZZER_NUM;
+    
     return 0;
 }
 
@@ -1096,36 +1088,35 @@ lock_and_add_to_quizz(struct baseinfo *qi, struct sockinfo *cli,
 //format in databuffer
 //type.mvalue.data.type.mvalue.data..
 int
-find_record_from_mem(uchar * otd, int dlen, struct htable *datasets,
-                     uchar * databuffer)
+find_record_from_mem(uchar * otd, int dlen, int type, struct htable *datasets,
+                     uchar * tdbuffer, uchar * databuffer, hashval_t *hash)
 {
-    uchar type, td[256] = { 0 };
-    struct mvalue *mv = NULL;
-    int ret, idx, dataidx = 0, clen, debug = 100;
-    memcpy(td, otd, dlen + 2);
-    type = td[0];
-    td[0] = CNAME;
+    uchar /*type, */*td = otd;
+    int ret, dataidx = 0, clen, debug = 100;
+    hashval_t thash, *h = hash;
     dataidx++;                  //add 1 for type. value will be type.mvalue.rrset
-    while ((ret =
-            find_record_with_ttl(datasets, td, databuffer + dataidx,
-                                 AUTH_DATA_LEN - dataidx, NULL)) > 0) {
-        databuffer[dataidx - 1] = CNAME;        //prev byte is type
-        mv = (struct mvalue *) (databuffer + dataidx);
-        clen = strlen(databuffer + dataidx + sizeof(struct mvalue)) + 1;
-        make_type_domain(databuffer + dataidx + sizeof(struct mvalue),
-                         clen, CNAME, td);
-        idx = get_pre_mem_hash(td);
-        dataidx += ret;
-        if (type == CNAME)      //at first time
-            return dataidx;
-        dataidx++;              //for type
-        if (debug-- == 0)       //error
-            return -1;
+    if (type != CNAME)
+    {
+        while ((ret =
+                find_record_with_ttl(datasets, td, dlen, CNAME, databuffer + dataidx,
+                                    AUTH_DATA_LEN - dataidx, NULL, h)) > 0) {
+            databuffer[dataidx - 1] = CNAME;        //prev byte is type
+            clen = ret - sizeof(struct mvalue);
+            td = tdbuffer;
+            memcpy(td, databuffer + dataidx + sizeof(struct mvalue), clen);
+            dataidx += ret;
+            dataidx++;              //for type
+            if (debug-- == 0)       //error
+                return -1;
+            thash = 0;
+            h = &thash;
+            dlen = clen;
+        }
+        thash = 0;
     }
-    td[0] = type;
     ret =
-        find_record_with_ttl(datasets, td, databuffer + dataidx,
-                             AUTH_DATA_LEN - dataidx, NULL);
+        find_record_with_ttl(datasets, td, dlen, type, databuffer + dataidx,
+                             AUTH_DATA_LEN - dataidx, NULL, h);
     if (ret > 0) {
         databuffer[dataidx - 1] = type;
         dataidx += ret;
@@ -1143,10 +1134,10 @@ global_cron(struct server *s)
     int fd = -1;
     struct list_node *nds, *tmp;
     struct list *el = &s->eventlist;
-    pthread_mutex_lock(&el->lock);
+    pthread_spin_lock(&el->lock);
     nds = el->head;
     el->head = NULL;
-    pthread_mutex_unlock(&el->lock);
+    pthread_spin_unlock(&el->lock);
     while (nds != NULL) {
         fd = *(int *) nds->data;
         if (fd > 0)
@@ -1159,99 +1150,62 @@ global_cron(struct server *s)
     return 0;
 }
 
-
 int
 run_fetcher(struct fetcher *f)
 {
     struct msgcache *mc = f->mc;
-    struct seninfo se = { 0 };
-    struct mvalue *mv = NULL, *mvp = NULL, mx;
-    struct sockinfo si, *psi = NULL;
-    uchar buf[512] = { 0 };
-    uchar td[256] = { 0 }, *val = NULL, *itor = NULL;
-    uchar mb[MAX_MSG_SIZE + sizeof(uint16_t)] = { 0 };
-    uint16_t mblen = 0;
-    hashval_t hash;
-    int ret = 0, hhead, len = 0, i;
-    struct baseinfo qi;
-    int counter = 0;
+    int ret = 0;
+    mbuf_type *mbuf;
+    int fd;
+    
     while (1) {
-        bzero(&qi, sizeof(struct baseinfo));
-        pthread_mutex_lock(&mc->lock);
-        if (mc->head == mc->tail) {
-            pthread_mutex_unlock(&mc->lock);
+        fd = -1;
+        pthread_spin_lock(&mc->lock);
+        if (mc->pkt == 0) {
+            pthread_spin_unlock(&mc->lock);
             usleep(1000);
             continue;
         }
-        se = *(struct seninfo *) (mc->data + mc->head); //meta data
-        memcpy(buf, mc->data + mc->head + sizeof(struct seninfo), se.len);      //data.
-        mc->head = mc->head + sizeof(struct seninfo) + se.len;
-        if (mc->head + 512 > mc->size)
+        memcpy(&mbuf, mc->data + mc->head, sizeof(void *));
+        mc->head = mc->head + sizeof(void *);//sizeof(struct seninfo) + se->len;
+        if (mc->head + 8 > mc->size)
             mc->head = 0;
-        pthread_mutex_unlock(&mc->lock);
-        si.buflen = se.len;     //msg len
-        si.buf = buf;
-        si.socktype = se.type;
-        if (si.socktype == UDP) {
-            memcpy(&(si.addr), &(se.addr), sizeof(struct sockaddr_in));
-            si.fd = f->s->ludp; //use public udp:53
-        } else
-            si.fd = se.fd;
-        qi = passer_dns_data(&si);
-        if (qi.err == 1)        //if our thread made error,start over from head==0.
+        mc->pkt--;
+        pthread_spin_unlock(&mc->lock);
+        if (mbuf->socktype == UDP) {
+            mbuf->fd = f->s->ludp; //use public udp:53
+        } 
+        passer_dns_data(mbuf);
+        if (mbuf->err == 1)        //if our thread made error,start over from head==0.
+        {
+            mbuf_free(mbuf);
             continue;
+        }
         f->dataidx = 0;
-        memcpy(td + 1, qi.origindomain, qi.dlen);
-        td[0] = qi.type;
+        mbuf->td = mbuf->lowerdomain.domain;
         //dbg_print_td(td);
         ret =
-            find_record_from_mem(td, qi.dlen, f->s->datasets,
-                                 f->databuffer);
+            find_record_from_mem(mbuf->td, mbuf->dlen, mbuf->qtype, f->s->datasets,
+                        f->tdbuffer, f->databuffer, &(mbuf->lowerdomain.hash[0]));
         if (ret > 0) {
-            //jump [type]
-            counter++;
-            if (counter % 100 == 0) {
-                printf("%d send %d\n", f->idx, counter);
-                counter = 0;
-            }
-            mv = (struct mvalue *) (f->databuffer + 1);
-            //printf("mv sg %d,%u\n",ret,mv->seg);
-            if (mv->seg > 0) {
-                send_msg_to_client(&si, td, qi.id, f->databuffer);
-            } else {
-                ret =
-                    write_back_to_client(mb, td, qi.id, qi.dlen, &si,
-                                         f->databuffer, ret);
-                if (ret == 0) {
-                    mvp = (struct mvalue *) mb;
-                    val =
-                        malloc(mvp->len + sizeof(struct mvalue) +
-                               mvp->seg * sizeof(uint16_t));
-                    if (val != NULL) {
-                        memcpy(val, mb, sizeof(struct mvalue));
-                        mvp = (struct mvalue *) val;
-                        mvp->ttl = mv->ttl;
-                        mvp->hits = mv->hits;
-                        mvp->num = 0;   //not used
-                        itor = val + sizeof(struct mvalue);
-                        //copy ttloff and msg
-                        memcpy(itor, mb + sizeof(struct mvalue),
-                               sizeof(uint16_t) * mvp->seg + mvp->len);
-                        hash = get_pre_mem_hash(td);
-                        htable_insert(f->s->datasets + hash, td, val, 1, &mx);  //replace
-                    }
-                }
-            }
-            write_log(&f->logfd, &f->lastlog, f->idx, td + 1, qi.type,
-                      &si.addr);
+            write_back_to_client(mbuf, f->databuffer, ret);
+            write_log(f->loginfo, f->idx, mbuf->td, mbuf->dlen - 1, mbuf->qtype,
+                     mbuf->addr);
+            mbuf_free(mbuf);
         } else {
-            psi = &si;
-            if (si.socktype == TCP)
-                psi = NULL;
-            lock_and_add_to_quizz(&qi, psi, f);
+            if (mbuf->socktype == TCP)
+            {
+                fd = mbuf->fd;
+                mbuf->fd = -1;
+            }
+            if (lock_and_add_to_quizz(mbuf, f) < 0)
+            {
+                f->miss++;
+                mbuf_free(mbuf);
+            }
         }
-        if (si.socktype == TCP) //not cached, kill tcp
-            delete_close_event(si.fd, f);
+        if (fd != -1) //not cached, kill tcp
+            delete_close_event(fd, f);
     }
     return 0;
 }

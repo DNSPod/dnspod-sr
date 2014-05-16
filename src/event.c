@@ -2,13 +2,13 @@
  * All rights reserved.
 
  * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met: 
+ * modification, are permitted provided that the following conditions are met:
  *
  * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer. 
+ *    list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution. 
+ *    and/or other materials provided with the distribution.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -22,7 +22,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  * The views and conclusions contained in the software and documentation are those
- * of the authors and should not be interpreted as representing official policies, 
+ * of the authors and should not be interpreted as representing official policies,
  * either expressed or implied, of the FreeBSD Project.
  */
 
@@ -64,7 +64,7 @@ create_event(int size)
 int
 add_event(struct event *ev, struct event_help *help)
 {
-    struct epoll_event e;
+    struct epoll_event e = {0};
     int ret = 0;
     int epfd = ev->ie->epfd;
     e.data.fd = help->fd;
@@ -101,9 +101,9 @@ del_event(struct event *ev, struct event_help *help)
 int
 handle_event(struct event *ev, int to)
 {
-    int num = 0, i;
-    static ulong fake_count = 0;
-    static int tm = 0;
+    int num = 0;
+    /* static ulong fake_count = 0; */
+    /* static int tm = 0; */
     struct iner_event *ie = ev->ie;
     if (to == 0)
         to = -1;
@@ -127,33 +127,43 @@ cb_get_tcp_msg(struct event_data *data, void *v, int idx)
     int ret, szhdr = sizeof(dnsheader);
     struct msgcache *mc;
     struct fetcher *f = (struct fetcher *) v;
-    struct sockinfo si;
-    struct seninfo *se = NULL;
-    mc = f[idx].mc;
-    pthread_mutex_lock(&mc->lock);
-    if (mc->tail + 512 > mc->size)
-        mc->tail = 0;
-    if (mc->tail < mc->head && mc->tail + 512 > mc->head)       //query msg should small than 300 bytes
-    {
-        close(data->fd);        //we should return a SERVER_ERROR.
-        pthread_mutex_unlock(&mc->lock);
+    mbuf_type *mbuf;
+    mbuf = mbuf_alloc();
+    if (NULL == mbuf) {
         return 0;
     }
-    se = (struct seninfo *) (mc->data + mc->tail);
-    se->type = TCP;
-    si.fd = data->fd;
-    si.buf = mc->data + mc->tail + sizeof(struct seninfo);
-    si.buflen = 512;
-    si.socktype = TCP;          //not used
-    ret = tcp_read_dns_msg(&si, 512, 0);        //epoll return and no blocked here
+    
+    mc = f[idx].mc;
+    pthread_spin_lock(&mc->lock);
+    if (mc->tail + 8 > mc->size)
+        mc->tail = 0;
+    if ((mc->tail + 8 > mc->head && mc->tail < mc->head) || 
+                (mc->tail == mc->head && mc->pkt != 0))       //query msg should small than 300 bytes
+    {
+        close(data->fd);        //we should return a SERVER_ERROR.
+        f[idx].miss++;
+        pthread_spin_unlock(&mc->lock);
+        mbuf_free(mbuf);
+        return 0;
+    }
+    f[idx].pkg++;
+    mbuf->socktype = TCP;
+    mbuf->fd = data->fd;
+    mbuf->buf = mbuf->data;
+    mbuf->buflen = MBUF_DATA_LEN;
+    ret = tcp_read_dns_msg(mbuf, MBUF_DATA_LEN, 0);        //epoll return and no blocked here
     if (ret < szhdr) {
-        pthread_mutex_unlock(&mc->lock);
+        pthread_spin_unlock(&mc->lock);
+        mbuf_free(mbuf);
         return -1;
     }
-    se->len = ret;              //data len.
-    se->fd = si.fd;
-    mc->tail = mc->tail + ret + sizeof(struct seninfo);
-    pthread_mutex_unlock(&mc->lock);
+    mbuf->fetch_len = ret;
+    memcpy(mc->data + mc->tail, &mbuf, sizeof(void *));
+    mc->tail = mc->tail + sizeof(void *);
+    if (mc->tail + 8 > mc->size)
+        mc->tail = 0;
+    mc->pkt++;
+    pthread_spin_unlock(&mc->lock);
     return 0;
 }
 
@@ -184,37 +194,42 @@ cb_get_udp_msg(struct event_data *data, void *v, int idx)
     int ret, szhdr = sizeof(dnsheader);
     struct msgcache *mc = NULL;
     struct fetcher *f = (struct fetcher *) v;
-    struct sockinfo si;
-    struct seninfo *se = NULL;
+    mbuf_type *mbuf;
     //printf("call back\n");
     while (1)                   //we use epoll et and non-block mode.
-    {
+    {        
+        mbuf = mbuf_alloc();
+        if (NULL == mbuf) {
+            return 0;
+        }
         mc = f[idx].mc;
-        pthread_mutex_lock(&mc->lock);
-        if (mc->tail + 512 > mc->head && mc->tail < mc->head) {
+        pthread_spin_lock(&mc->lock);
+        if ((mc->tail + 8 > mc->head && mc->tail < mc->head) || 
+                (mc->tail == mc->head && mc->pkt != 0)) {
             f[idx].miss++;
-            pthread_mutex_unlock(&mc->lock);
+            pthread_spin_unlock(&mc->lock);
+            mbuf_free(mbuf);
             return 0;
         }
         f[idx].pkg++;
-        se = (struct seninfo *) (mc->data + mc->tail);
-        se->type = UDP;
-        si.fd = data->fd;
-        si.buf = mc->data + mc->tail + sizeof(struct seninfo);
-        si.buflen = 512;
-        si.socktype = UDP;
-        ret = udp_read_msg(&si, 0);     //epoll return and no blocking here
+        mbuf->socktype = UDP;
+        mbuf->fd = data->fd;
+        mbuf->buf = mbuf->data + 2;
+        mbuf->buflen = MBUF_DATA_LEN - 2;
+        mbuf->addr = &(mbuf->caddr);
+        ret = udp_read_msg(mbuf, 0);     //epoll return and no blocking here
         if (ret < szhdr) {
-            pthread_mutex_unlock(&mc->lock);
+            pthread_spin_unlock(&mc->lock);
+            mbuf_free(mbuf);
             return -1;
         }
-        memcpy(&(se->addr), &(si.addr), sizeof(struct sockaddr_in));
-        //if check addr == false,pthread_unlock,return.
-        se->len = ret;          //data len.
-        mc->tail = mc->tail + ret + sizeof(struct seninfo);
-        if (mc->tail + 512 > mc->size)
+        mbuf->fetch_len = ret;
+        memcpy(mc->data + mc->tail, &mbuf, sizeof(void *));
+        mc->tail = mc->tail + sizeof(void *);//ret + sizeof(struct seninfo);
+        if (mc->tail + 8 > mc->size)
             mc->tail = 0;
-        pthread_mutex_unlock(&mc->lock);
+        mc->pkt++;
+        pthread_spin_unlock(&mc->lock);
     }
     return 0;
 }
@@ -248,6 +263,17 @@ run_sentinel(struct server *s)
     socklen_t len = sizeof(addr);
     struct fetcher *f = s->fetchers;
     struct event *ev = create_event(SENTINEL_EVENT);    // 1 for udp,999 for tcp.
+    cpu_set_t cpuinfo;
+    pthread_t pt = pthread_self();;
+
+    CPU_ZERO(&cpuinfo);
+    CPU_SET_S(0, sizeof(cpuinfo), &cpuinfo);
+    if(0 != pthread_setaffinity_np(pt, sizeof(cpu_set_t), &cpuinfo))
+    {
+        printf("set affinity fetcher\n");
+        exit(0);
+    }
+    
     if (ev == NULL)
         dns_error(0, "create event st");
     insert_events(ev, s->ludp, UDP);

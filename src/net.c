@@ -2,13 +2,13 @@
  * All rights reserved.
 
  * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met: 
+ * modification, are permitted provided that the following conditions are met:
  *
  * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer. 
+ *    list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution. 
+ *    and/or other materials provided with the distribution.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -22,7 +22,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  * The views and conclusions contained in the software and documentation are those
- * of the authors and should not be interpreted as representing official policies, 
+ * of the authors and should not be interpreted as representing official policies,
  * either expressed or implied, of the FreeBSD Project.
  */
 
@@ -51,7 +51,7 @@ int
 add_backdoor(int fd)
 {
     int epfd, ret;
-    struct epoll_event ev;
+    struct epoll_event ev = {0};
     epfd = epoll_create(BACK_EVENT);
     if (epfd < 0)
         dns_error(0, "epoll bd");
@@ -94,7 +94,8 @@ create_socket(int port, int proto, uchar * addr)
     if (addr == NULL)
         srv.sin_addr.s_addr = htonl(INADDR_ANY);
     else
-        inet_aton(addr, &srv.sin_addr);
+        /* inet_aton(addr, &srv.sin_addr); */
+        inet_pton(AF_INET, (const char *)addr, &srv.sin_addr);
     srv.sin_port = htons(port);
     if (bind(fd, (SA *) & srv, sizeof(srv)) < 0) {
         perror("bind:");
@@ -125,18 +126,18 @@ connect_to(struct sockinfo *si)
 
 
 int
-tcp_write_info(struct sockinfo *ri, int vi)     //for dns only
+tcp_write_info(mbuf_type *mbuf, int vi)     //for dns only
 {
     int i, ret;
-    ret = send(ri->fd, ri->buf, ri->buflen, MSG_NOSIGNAL);
+    ret = send(mbuf->fd, mbuf->buf, mbuf->buflen, MSG_NOSIGNAL);
     if (ret < 0) {
         printf("%d,", errno);
         perror("tcp send");
     }
     if (vi == 1) {
-        printf("fd is %d\n", ri->fd);
-        for (i = 0; i < ri->buflen; i++)
-            printf("%x,", ri->buf[i]);
+        printf("fd is %d\n", mbuf->fd);
+        for (i = 0; i < mbuf->buflen; i++)
+            printf("%x,", mbuf->buf[i]);
         printf("\n");
     }
     return ret;
@@ -144,59 +145,62 @@ tcp_write_info(struct sockinfo *ri, int vi)     //for dns only
 
 
 int
-udp_write_info(struct sockinfo *ri, int vi)
+udp_write_info(mbuf_type *mbuf, int vi)
 {
     int i, ret;
     socklen_t len;
     if (vi) {
-        dbg_print_addr((struct sockaddr_in *) &(ri->addr));
-        for (i = 0; i < ri->buflen; i++)
-            printf("%x,", ri->buf[i]);
+        dbg_print_addr((struct sockaddr_in *) (mbuf->addr));
+        for (i = 0; i < mbuf->buflen; i++)
+        {
+            if (i % 16 == 0)
+                printf("\n");
+            printf("%02x,", mbuf->buf[i]);
+        }
         printf("\n");
     }
     len = sizeof(struct sockaddr_in);
-    ((struct sockaddr_in *) &(ri->addr))->sin_family = AF_INET;
-    ret = sendto(ri->fd, ri->buf, ri->buflen, 0, (SA *) & (ri->addr), len);
-    if (ret < 0) {
-        perror("write udp");
-        printf("len %u,fd %d\n", len, ri->fd);
-        dbg_print_addr((struct sockaddr_in *) &(ri->addr));
-        for (i = 0; i < ri->buflen; i++)
-            printf("%x,", ri->buf[i]);
-        printf("\n");
-    }
+    ((struct sockaddr_in *) (mbuf->addr))->sin_family = AF_INET;
+    ret = sendto(mbuf->fd, mbuf->buf, mbuf->buflen, 0, (SA *) (mbuf->addr), len);
+    /* if (ret < 0) { */
+        /* perror("write udp"); */
+        /* printf("len %u,fd %d\n", len, ri->fd); */
+        /* dbg_print_addr((struct sockaddr_in *) &(ri->addr)); */
+        /* for (i = 0; i < ri->buflen; i++) */
+            /* printf("%x,", ri->buf[i]); */
+        /* printf("\n"); */
+    /* } */
     return ret;
 }
 
 
 int
-tcp_read_dns_msg(struct sockinfo *si, uint max, int vi) //for dns only.
+tcp_read_dns_msg(mbuf_type *mbuf, uint max, int vi) //for dns only.
 {
-    int ret = 0, i, tp, rcvnum;
-    int len;
+    int ret = 0, tp, rcvnum;
     uchar buf[4] = { 0 };
     ushort le = 0;
-    tp = recv(si->fd, buf, 2, 0);
+    tp = recv(mbuf->fd, buf, 2, 0);
     if (tp < 0) {
-        printf("%d,", si->fd);
+        printf("%d,", mbuf->fd);
         perror("tp");
         return -1;
     }
     if (tp == 0)                //peer closed
         return 0;
-    le = *(ushort *) buf;
+    memcpy(&le, buf, sizeof(ushort));
     le = ntohs(le);
     if (le > max) {
-        printf("too large %d,%u,%d\n", si->fd, le, max);
+        printf("too large %d,%u,%d\n", mbuf->fd, le, max);
         return -1;
     }
     while (ret < le)            //should set time out here
     {
-        rcvnum = recv(si->fd, si->buf + ret, si->buflen - ret, 0);
+        rcvnum = recv(mbuf->fd, mbuf->buf + ret, mbuf->buflen - ret, 0);
         if (rcvnum < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK)
                 continue;
-            printf("tcp data %d,%d,%d", si->fd, le, ret);
+            printf("tcp data %d,%d,%d", mbuf->fd, le, ret);
             perror("tcp read");
             return -1;
         }
@@ -211,12 +215,12 @@ tcp_read_dns_msg(struct sockinfo *si, uint max, int vi) //for dns only.
 
 
 int
-udp_read_msg(struct sockinfo *si, int visible)
+udp_read_msg(mbuf_type *mbuf, int visible)
 {
     int ret, i;
     socklen_t len = sizeof(struct sockaddr_in);
     ret =
-        recvfrom(si->fd, si->buf, si->buflen, 0, (SA *) & (si->addr),
+        recvfrom(mbuf->fd, mbuf->buf, mbuf->buflen, 0, (SA *)(mbuf->addr),
                  &len);
     if (ret < 0) {
         //perror("read udp");
@@ -226,7 +230,7 @@ udp_read_msg(struct sockinfo *si, int visible)
     //dbg_print_addr(&si->addr);
     if (visible) {
         for (i = 0; i < ret; i++)
-            printf("%x,", si->buf[i]);
+            printf("%x,", mbuf->buf[i]);
         printf("\n");
     }
     return ret;
@@ -258,9 +262,9 @@ set_non_block(int fd)
 
 
 int
-make_bin_from_str(uchar * bin, const uchar * str)
+make_bin_from_str(uchar * bin, const char * str)
 {
-    int i, n;
+    int i;
     uchar val = 0;
     for (i = 0; i < 4; i++) {
         while ((str[0] != '.') && (str[0] != 0)) {
@@ -301,7 +305,7 @@ make_addr_from_bin(struct sockaddr_in *addr, uchar * data)
         idx++;
     }
     ipv4[idx - 1] = 0;
-    i = inet_aton(ipv4, &addr->sin_addr);
+    i = inet_pton(AF_INET, (const char *)ipv4, &addr->sin_addr);
     return 0;
 }
 
@@ -310,8 +314,6 @@ make_addr_from_bin(struct sockaddr_in *addr, uchar * data)
 int
 dbg_print_addr(struct sockaddr_in *addr)
 {
-    int port;
-    uchar str[16], *ret;
     uint i;
     if (addr == NULL) {
         printf("null addr\n");

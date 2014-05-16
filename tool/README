@@ -1,0 +1,5 @@
+use this to hijack/(cache flush)
+
+./client "hijack"
+./client "hijack example.com"
+./client "cache flush: example.com"

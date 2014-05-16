@@ -2,13 +2,13 @@
  * All rights reserved.
 
  * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met: 
+ * modification, are permitted provided that the following conditions are met:
  *
  * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer. 
+ *    list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution. 
+ *    and/or other materials provided with the distribution.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -22,18 +22,21 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  * The views and conclusions contained in the software and documentation are those
- * of the authors and should not be interpreted as representing official policies, 
+ * of the authors and should not be interpreted as representing official policies,
  * either expressed or implied, of the FreeBSD Project.
  */
 
 
 #include "io.h"
+#include "config.h"
 
 //standard format support only
 //name,ttl,type,data
 
 
-static uchar *
+extern int add_query_info(int log_type, int idx, uint16_t type);
+
+uchar *
 jump_space(uchar * itor)
 {
     //close current string and jump to begin of next string
@@ -64,39 +67,48 @@ jump_space(uchar * itor)
 //AAAA,
 //SRV
 int
-read_records_from_file(const uchar * fn, struct htable *ds,
-                       struct rbtree *rbt)
+read_records_from_file(const char * fn, struct htable *ds,
+                       struct rbtree *rbt, int hijack)
 {
     FILE *fd = NULL;
     uchar vbuffer[5000] = { 0 }, ipv4[4], ipv6[16];
     uchar rbuffer[1024] = { 0 };
     uchar tmpdomain[256] = ".", tmptype[10] = "NS";
-    uchar *ps[5] = { 0 }, *vitor = vbuffer;
+    uchar *ps[5] = { 0 };
     uchar *ritor = NULL;
-    int tmplen = 0, type = 0, i, seg = 0;
-    uchar kbuffer[256] = { 0 };
+    uchar *vitor = vbuffer;
+    int tmplen = 0, type = 0, i/*, seg = 0*/;
+    uchar *kbuffer;//[256] = { 0 };
     uint ttl = 0, tmpttl = 0;
+    int dlen;
     struct mvalue *mv = (struct mvalue *) vbuffer;
     //uint vallen = sizeof(struct mvalue);
+    packet_type lowerdomain, lowerns;
+    
     if (ds == NULL)
         dns_error(0, "datasets null");
-    if ((fd = fopen(fn, "r")) == NULL)
+    if ((fd = fopen(fn, "r")) == NULL) {
+        fprintf(stderr, "open file %s error\n", fn);
+        perror("fopen");
         dns_error(0, "open file root.z");
+    }
+    kbuffer = lowerdomain.domain;
     mv->num = 0;
     mv->ttl = 0;
     mv->len = 0;
     mv->seg = 0;
     vitor = vbuffer + sizeof(struct mvalue);
 
-    while (fgets(rbuffer, 1024, fd) != NULL) {
+    while (fgets((char *)rbuffer, 1024, fd) != NULL) {
         ritor = rbuffer;
         ps[0] = ritor;
         for (i = 1; i < 5; i++) {
             ritor = jump_space(ritor);
             ps[i] = ritor;
         }
-        fix_tail(ps[4]);        //drop the \n and \r
-        tmpttl = atoi(ps[1]);
+        to_lowercase(ps[0], strlen((const char *)ps[0]) + 1);
+        fix_tail((char *)ps[4]);        //drop the \n and \r
+        tmpttl = atoi((const char *)ps[1]);
         ttl = tmpttl + global_now;      // 600 + now
         if (tmpttl >= MAX_TTL + 1)      // > max + 1,already added now
             ttl = tmpttl;       // == max + 1,never expired
@@ -104,21 +116,28 @@ read_records_from_file(const uchar * fn, struct htable *ds,
             ttl = MAX_TTL + 1;
         if (tmpttl == NEVER_EXPIRED2)
             ttl = MAX_TTL + 1;
-        if ((strcmp(ps[0], tmpdomain) != 0)
-            || (strcmp(ps[3], tmptype) != 0)) {
-            if (strcmp(tmptype, "NS") == 0)
+        if ((strcmp((const char *)ps[0], (const char *)tmpdomain) != 0)
+            || (strcmp((const char *)ps[3], (const char *)tmptype) != 0)) {
+            if (strcmp((const char *)tmptype, "NS") == 0)
                 type = NS;
-            if (strcmp(tmptype, "A") == 0)
+            else if (strcmp((const char *)tmptype, "A") == 0)
                 type = A;
-            if (strcmp(tmptype, "AAAA") == 0)
+            else if (strcmp((const char *)tmptype, "AAAA") == 0)
                 type = AAAA;
-            to_lowercase(tmpdomain, strlen(tmpdomain) + 1);
-            str_to_len_label(tmpdomain, strlen(tmpdomain) + 1);
-            make_type_domain(tmpdomain, strlen(tmpdomain) + 1, type,
-                             kbuffer);
-            insert_kv_mem(NULL, ds, kbuffer, vbuffer, mv->len + sizeof(struct mvalue)); //key value
-            memcpy(tmptype, ps[3], strlen(ps[3]) + 1);
-            memcpy(tmpdomain, ps[0], strlen(ps[0]) + 1);
+            if (strcmp((const char *)tmptype, "CNAME") == 0)
+                type = CNAME;
+            dlen = strlen((const char *)tmpdomain) + 1;
+            if (dlen > 1) {
+                str_to_len_label(tmpdomain, dlen);
+//                 make_type_domain((uchar *)tmpdomain, dlen, type,
+//                         kbuffer);
+//                 memcpy(kbuffer, tmpdomain, dlen);
+                check_dns_name(tmpdomain, &lowerdomain);
+                insert_kv_mem(rbt, ds, kbuffer, dlen, type, vbuffer, 
+                              mv->len + sizeof(struct mvalue), hijack, &lowerdomain); //key value
+            }
+            memcpy(tmptype, ps[3], strlen((const char *)ps[3]) + 1);
+            memcpy(tmpdomain, ps[0], strlen((const char *)ps[0]) + 1);
             vitor = vbuffer + sizeof(struct mvalue);
             mv->num = 0;
             mv->ttl = 0;
@@ -127,23 +146,23 @@ read_records_from_file(const uchar * fn, struct htable *ds,
         }
         if (ttl > mv->ttl)
             mv->ttl = ttl;
-        if (strcmp(ps[3], "NS") == 0) {
-            to_lowercase(ps[4], strlen(ps[4]) + 1);
-            str_to_len_label(ps[4], strlen(ps[4]) + 1);
-            tmplen = check_dns_name(ps[4], &seg);
+        if (strcmp((const char *)ps[3], "NS") == 0 || strcmp((const char *)ps[3], "CNAME") == 0) {
+//             to_lowercase((uchar *)ps[4], strlen(ps[4]) + 1);
+            str_to_len_label(ps[4], strlen((const char *)ps[4]) + 1);
+            tmplen = check_dns_name(ps[4], &lowerns);
             if (tmplen > 0) {
-                memcpy(vitor, ps[4], tmplen);
+                memcpy(vitor, lowerns.domain, tmplen);
                 vitor += tmplen;
                 mv->len += tmplen;
                 mv->num++;
             }
-        } else if (strcmp(ps[3], "A") == 0) {
-            str_to_uchar4(ps[4], ipv4);
+        } else if (strcmp((const char *)ps[3], "A") == 0) {
+            str_to_uchar4((const char *)ps[4], ipv4);
             memcpy(vitor, ipv4, 4);
             vitor += 4;
             mv->len += 4;
             mv->num++;
-        } else if (strcmp(ps[3], "AAAA") == 0) {
+        } else if (strcmp((const char *)ps[3], "AAAA") == 0) {
             str_to_uchar6(ps[4], ipv6);
             memcpy(vitor, ipv6, 16);
             vitor += 16;
@@ -153,6 +172,21 @@ read_records_from_file(const uchar * fn, struct htable *ds,
         //else
         //printf("error type %s\n",ps[3]);
     }
+    if (strcmp((const char *)tmptype, "NS") == 0)
+        type = NS;
+    if (strcmp((const char *)tmptype, "A") == 0)
+        type = A;
+    if (strcmp((const char *)tmptype, "AAAA") == 0)
+        type = AAAA;
+    dlen = strlen((const char *)tmpdomain) + 1;
+    if (dlen > 1) {
+        str_to_len_label(tmpdomain, dlen);
+//         make_type_domain((uchar *)tmpdomain, dlen, type,
+//                 kbuffer);
+        insert_kv_mem(rbt, ds, kbuffer, dlen, type, vbuffer, 
+                      mv->len + sizeof(struct mvalue), hijack, &lowerdomain); //key value
+    }
+    fclose(fd);
     return 0;
 }
 
@@ -160,7 +194,7 @@ read_records_from_file(const uchar * fn, struct htable *ds,
 int
 read_root(struct htable *ds, struct rbtree *rbt)
 {
-    return read_records_from_file("../root.z", ds, rbt);
+    return read_records_from_file(SR_ROOT_FILE, ds, rbt, 0);
 }
 
 
@@ -168,31 +202,32 @@ int
 refresh_records(struct htable *ds, struct rbtree *rbt)
 {
     printf("read from records.z\n");
-    return read_records_from_file("records.z", ds, rbt);
+    return read_records_from_file(SR_RECORDS_FILE, ds, rbt, 1);
 }
 
 
 int
 create_transfer_point(uchar * name, struct htable *fwd, int n)
 {
-    int i = -1, dlen;
+    int i = -1, dlen, ret;
     uchar ipv4[4] = { 0 }, *addr = NULL, *itor;
-    uchar kbuffer[256] = { 0 };
+//     uchar kbuffer[256] = { 0 };
     uchar vbuffer[1000] = { 0 };
     uchar *v = NULL;
-    dlen = strlen(name);
-    str_to_len_label(name, dlen + 1);
-    make_type_domain(name, dlen, A, kbuffer);   //forward ip
-    addr = name + dlen + 1;
+    hashval_t hash = 0;
+    dlen = strlen((const char *)name) + 1;
+    str_to_len_label(name, dlen);
+//     make_type_domain(name, dlen, A, kbuffer);   //forward ip
+    addr = name + dlen;
     struct mvalue *mv = (struct mvalue *) vbuffer;
     mv->num = 0;
     mv->ttl = MAX_TTL + 1;
     mv->len = 0;                //not include the struct itself
     itor = vbuffer + sizeof(struct mvalue);
     for (i = 0; i < n; i++) {
-        str_to_uchar4(addr, ipv4);
+        str_to_uchar4((const char *)addr, ipv4);
         memcpy(itor, ipv4, 4);
-        addr = addr + strlen(addr) + 1;
+        addr = addr + strlen((const char *)addr) + 1;
         itor += 4;
         mv->len += 4;
         mv->num++;
@@ -201,17 +236,62 @@ create_transfer_point(uchar * name, struct htable *fwd, int n)
     }
     v = malloc(mv->len + sizeof(struct mvalue));
     memcpy(v, vbuffer, mv->len + sizeof(struct mvalue));
-    htable_insert(fwd, kbuffer, v, 0, NULL);
+    ret = htable_insert(fwd, name, dlen, A, v, 0, NULL, &hash);
+    assert(ret >= 0);
     return 0;
 }
 
 
+int read_resolve(FILE * fd, char **nameservers, int n)
+{
+    char buf[1024] = {0}, *tmp = NULL;
+    int i = 0;
+    char placeholder[128] = {0};
+    char temp[32] = {0};
+    if (fd == NULL || n <= 0) {
+        return -1;
+    }
+    i = 0;
+
+    while (fgets(buf, 1024, fd) != NULL) {
+        fix_tail(buf);
+        if (buf[0] == ':') {
+            break;
+        }
+        tmp = strstr(buf, "nameserver");
+        if (!tmp) {
+            continue;
+        }
+        if (i + 1 > n) {
+            continue;
+        }
+        memset(placeholder, 0, 128);
+        memset(temp, 0, 32);
+        sscanf(buf, "%s %s", placeholder, temp);
+        // 255.255.255.255 15
+        // 1.1.1.1 7
+        if (strlen(temp) > 15 || strlen(temp) < 7) {
+            continue;
+        }
+        nameservers[i++] = strdup(temp);
+    }
+    return i;
+}
+
 int
-read_logpath(FILE * fd, uchar * path)
+read_logpath(FILE * fd, char * path)
 {
     if (fgets(path, 512, fd) == NULL)
-        memcpy(path, "./", 3);  // if open failed, set ./ again
+        memcpy(path, "/var/dnspod-sr/log/", 20);  // if open failed, set ./ again
     fix_tail(path);
+    if (mkdir(path, 0755) != 0) {
+        if (errno == EEXIST) {
+            return 0;
+        } else {
+            dns_error(0, "create log parent dir failed");
+        }
+    }
+
     return 0;
 }
 
@@ -219,8 +299,8 @@ read_logpath(FILE * fd, uchar * path)
 int
 read_transfer(FILE * fd, struct htable *fwd)
 {
-    uchar buf[1024] = { 0 }, *tmp = NULL;
-    int idx = 0, i, n;
+    char buf[1024] = { 0 }, *tmp = NULL;
+    int i, n;
     if (fd == NULL || fwd == NULL)
         return -1;
     while (fgets(buf, 1024, fd) != NULL) {
@@ -243,7 +323,7 @@ read_transfer(FILE * fd, struct htable *fwd)
                 }
             }
             if (i != 8)         //too more ips
-                create_transfer_point(buf, fwd, n);
+                create_transfer_point((uchar *)buf, fwd, n);
         }
     }
     return 0;
@@ -251,11 +331,10 @@ read_transfer(FILE * fd, struct htable *fwd)
 
 
 int
-read_config(const uchar *fn, uchar * logpath, struct htable *forward)
+read_config(const char *fn, char * logpath, struct htable *forward, char **nameservers)
 {
-    int len, i, n = 0;
     FILE *fd = NULL;
-    uchar buf[1024] = { 0 }, *itor = NULL, *tmp = NULL;
+    char buf[1024] = {0};
     if (fn == NULL) {
         return -1;
     }
@@ -270,6 +349,10 @@ read_config(const uchar *fn, uchar * logpath, struct htable *forward)
         }
         if (strcmp(buf, "log_path:") == 0) {
             read_logpath(fd, logpath);
+            continue;
+        }
+        if (strcmp(buf, "resolve:") == 0) {
+            read_resolve(fd, nameservers, 2);
             continue;
         }
     }
@@ -304,35 +387,56 @@ fill_domain_to_len_label(const char *from, char *to)
 //type, query type
 //addr, client addr
 int
-write_loginfo_into_file(int fd, const uchar * domain, int type,
+write_loginfo_into_file(struct log_info *log, const uchar * domain, int dlen, int type,
                         struct sockaddr_in *addr)
 {
-    int len = 0;
-    char buffer[600] = { 0 };
-    char *itor;
+    /* char buffer[600] = { 0 }; */
+    /* char *itor; */
     uchar tp = type % 256;
-    itor = buffer;
+    /* itor = buffer; */
+    int fd = log->logfd;
+    int tmplen = 0;
+    int ret = 0;
     if (fd <= 0)
         return -1;
     if (domain != NULL) {
-        len = fill_domain_to_len_label(domain, itor);
-        itor += len;
-        memcpy(itor, &tp, sizeof(uchar));
-        itor += sizeof(uchar);
-        if (addr != NULL) {
-            //127.0.0.1 would be 0x 7f 00 00 01
-            memcpy(itor, &(addr->sin_addr.s_addr), sizeof(ulong));
-            itor += sizeof(struct in_addr);
+        tmplen = 8 + dlen;
+        if (log->log_cache_cursor + tmplen >= LOG_CACHE_SIZE) {
+            ret = write(log->logfd, log->log_cache, log->log_cache_cursor);
+            if (ret == -1) {
+                perror("write");
+            }
+            log->log_cache_cursor = 0;
         }
-        write(fd, buffer, itor - buffer);
-    } else                      //write time stamp
-    {
-        buffer[0] = '1';        // timestamp
-        sprintf(buffer + 1, "%lu", global_now);
-        memcpy(buffer + strlen(buffer), "#", 1);        //no 0 end
-        write(fd, buffer, strlen(buffer));
+        if (tmplen >= LOG_CACHE_SIZE) {
+            return 0;
+        } else {
+            log->log_cache[log->log_cache_cursor] = 255;
+            log->log_cache[log->log_cache_cursor + 1] = tp;
+            log->log_cache[log->log_cache_cursor + 2] = 2; /* default label_start_num: 2 */
+            memcpy(log->log_cache + log->log_cache_cursor + 3,
+                    &(addr->sin_addr.s_addr), sizeof(addr->sin_addr.s_addr));
+            memcpy(log->log_cache + log->log_cache_cursor + 3 + sizeof(addr->sin_addr.s_addr),
+                    domain, dlen);
+            log->log_cache_cursor = log->log_cache_cursor + tmplen;
+            log->log_cache[log->log_cache_cursor - 1] = '#';
+        }
+
+
+        /*
+         * len = fill_domain_to_len_label((const char *)domain, itor);
+         * itor += len;
+         * memcpy(itor, &tp, sizeof(uchar));
+         * itor += sizeof(uchar);
+         * if (addr != NULL) {
+         *     //127.0.0.1 would be 0x 7f 00 00 01
+         *     memcpy(itor, &(addr->sin_addr.s_addr), sizeof(ulong));
+         *     itor += sizeof(struct in_addr);
+         * }
+         * write(fd, buffer, itor - buffer);
+         */
     }
-    write(fd, "\n", 2);
+    /* write(fd, "\n", 2); */
     return 0;
 }
 
@@ -353,7 +457,7 @@ create_new_log(uchar * prefix, int idx, int type)
     time_t prev;
     mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
     if (pf[0] == 0)
-        memcpy(pf, prefix, strlen(prefix) + 1);
+        memcpy(pf, prefix, strlen((const char *)prefix) + 1);
     filename[0] = 'f';
     if ((type != TYPE_QUIZZER) && (type != TYPE_FETCHER))
         return -1;
@@ -379,16 +483,19 @@ create_new_log(uchar * prefix, int idx, int type)
 //fetcher
 //1.TIME#
 //0.name.type.clientip#
+//add speed/flow info to the shared mem, in order to looked up by other process
 int
-write_log(int *fd, time_t * lastlog, int idx, const uchar * domain,
+write_log(struct log_info *log, int idx, const uchar * domain, int dlen, 
           int type, struct sockaddr_in *addr)
 {
-    int lfd = *fd;
-    if (((global_now % LOG_INTERVAL) == 0) && (global_now > (*lastlog))) {
+    add_query_info(log->log_type, idx, type);
+    int lfd = log->logfd;
+    if (((global_now % LOG_INTERVAL) == 0) && (global_now > (log->lastlog))) {
         close(lfd);
-        lfd = create_new_log(NULL, idx, TYPE_FETCHER);
-        *fd = lfd;
+        lfd = create_new_log(NULL, idx, log->log_type);
+        log->logfd = lfd;
     }
-    write_loginfo_into_file(lfd, domain, type, addr);
+    write_loginfo_into_file(log, domain, dlen, type, addr);
+    log->lastlog = global_now;
     return 0;
 }

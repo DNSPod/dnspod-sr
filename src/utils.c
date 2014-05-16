@@ -2,13 +2,13 @@
  * All rights reserved.
 
  * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met: 
+ * modification, are permitted provided that the following conditions are met:
  *
  * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer. 
+ *    list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution. 
+ *    and/or other materials provided with the distribution.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -22,16 +22,16 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  * The views and conclusions contained in the software and documentation are those
- * of the authors and should not be interpreted as representing official policies, 
+ * of the authors and should not be interpreted as representing official policies,
  * either expressed or implied, of the FreeBSD Project.
  */
 
 
 #include "utils.h"
-
+#include "author.h"
 
 int
-slog(uchar * msg, int fd, pthread_mutex_t * lock)
+slog(uchar * msg, int fd, pthread_spinlock_t * lock)
 {
     return 0;
 }
@@ -41,13 +41,16 @@ slog(uchar * msg, int fd, pthread_mutex_t * lock)
 int
 get_random_data(uchar * buffer, int len)
 {
-    int fd = -1;
+    int fd = -1, ret = 0;
     if ((buffer == NULL) || (len < 0))
         return -1;
     fd = open("/dev/urandom", O_RDONLY);
     if (fd <= 0)
         return fd;
-    read(fd, buffer, len);
+    ret = read(fd, buffer, len);
+    if (ret == -1) {
+        perror("read");
+    }
     close(fd);
     return 0;
 }
@@ -60,7 +63,7 @@ uchar *
 get_str(uchar * str, int len)
 {
     uchar *ret = malloc(len + 1);
-    strncpy(ret, str, len + 1);
+    strncpy((char *)ret, (char *)str, len + 1);
     ret[len] = 0;
     return ret;
 }
@@ -75,6 +78,34 @@ put_str(uchar * str)
 
 //----------------------end---------------------//
 
+int flush_all_to_disk(struct server *s)
+{
+    int i, ret;
+    struct log_info *log = NULL;
+    for (i = 0; i < s->nfetcher; i++) {
+        /* write(log->logfd, log->log_cache, log->log_cache_cursor); */
+        /* s->fetchers[i] */
+        log = s->fetchers[i].loginfo;
+        ret = write(log->logfd, log->log_cache, log->log_cache_cursor);
+        if (ret == -1) {
+            perror("write");
+        }
+        log->log_cache_cursor = 0;
+        close(log->logfd);
+    }
+    for (i = 0; i < s->nquizzer; i++) {
+        log = s->authors[i].loginfo;
+        ret = write(log->logfd, log->log_cache, log->log_cache_cursor);
+        if (ret == -1) {
+            perror("write");
+        }
+        log->log_cache_cursor = 0;
+        close(log->logfd);
+    }
+
+    return 0;
+}
+
 
 //signal handler,be enhenced soon.
 //---------------------system func begin---------------//
@@ -82,6 +113,7 @@ static void
 sig_segment_fault(int signo)
 {
     printf("sig number is %d\n", signo);
+    flush_all_to_disk(global_serv);
     exit(0);
 }
 
@@ -95,7 +127,7 @@ trig_signals(int sig)
     sigset_t bset, oset;
     int sigs[] = { SIGINT, SIGBUS, SIGSEGV, SIGPIPE, }, i, sig_num;
     struct sigaction sa, oa;
-    bzero(&sa, sizeof(sa));
+    memset(&sa, 0, sizeof(sa));
     sa.sa_handler = sig_segment_fault;
     sa.sa_flags = SA_RESTART;
     for (i = 0; i < sizeof(sigs) / sizeof(sigs[0]); i++) {
@@ -111,7 +143,7 @@ trig_signals(int sig)
 
 
 void
-drop_privilege(uchar * root)
+drop_privilege(char * root)
 {
     if (root == NULL)
         return;
@@ -188,7 +220,11 @@ rbt_comp_ttl_gt(void *v1, void *v2, void *argv)
         return 1;
     if (n1->exp < n2->exp)
         return -1;
-    ret = strcmp(n1->data, n2->data);
+    if (n1->type > n2->type)
+        return 1;
+    if (n1->type < n2->type)
+        return -1;
+    ret = dict_comp_str_equ(n1->data, n2->data);
     if (ret > 0)
         return 1;
     if (ret < 0)
@@ -219,24 +255,69 @@ rbt_comp_uint_gt(void *v1, void *v2, void *argv)
 
 //str functions,no error check,no test
 //-----------------------str begin----------------------//
+
+//大小写转换表
+unsigned char LowerTable[256] = {
+    0X00,0X01,0X02,0X03,0X04,0X05,0X06,0X07,0X08,0X09,0X0A,0X0B,0X0C,0X0D,0X0E,0X0F,
+    0X10,0X11,0X12,0X13,0X14,0X15,0X16,0X17,0X18,0X19,0X1A,0X1B,0X1C,0X1D,0X1E,0X1F,
+    0X20,0X21,0X22,0X23,0X24,0X25,0X26,0X27,0X28,0X29,0X2A,0X2B,0X2C,0X2D,0X2E,0X2F,
+    0X30,0X31,0X32,0X33,0X34,0X35,0X36,0X37,0X38,0X39,0X3A,0X3B,0X3C,0X3D,0X3E,0X3F,
+    0X40,0X61,0X62,0X63,0X64,0X65,0X66,0X67,0X68,0X69,0X6A,0X6B,0X6C,0X6D,0X6E,0X6F,
+    0X70,0X71,0X72,0X73,0X74,0X75,0X76,0X77,0X78,0X79,0X7A,0X5B,0X5C,0X5D,0X5E,0X5F,
+    0X60,0X61,0X62,0X63,0X64,0X65,0X66,0X67,0X68,0X69,0X6A,0X6B,0X6C,0X6D,0X6E,0X6F,
+    0X70,0X71,0X72,0X73,0X74,0X75,0X76,0X77,0X78,0X79,0X7A,0X7B,0X7C,0X7D,0X7E,0X7F,
+    0X80,0X81,0X82,0X83,0X84,0X85,0X86,0X87,0X88,0X89,0X8A,0X8B,0X8C,0X8D,0X8E,0X8F,
+    0X90,0X91,0X92,0X93,0X94,0X95,0X96,0X97,0X98,0X99,0X9A,0X9B,0X9C,0X9D,0X9E,0X9F,
+    0XA0,0XA1,0XA2,0XA3,0XA4,0XA5,0XA6,0XA7,0XA8,0XA9,0XAA,0XAB,0XAC,0XAD,0XAE,0XAF,
+    0XB0,0XB1,0XB2,0XB3,0XB4,0XB5,0XB6,0XB7,0XB8,0XB9,0XBA,0XBB,0XBC,0XBD,0XBE,0XBF,
+    0XC0,0XC1,0XC2,0XC3,0XC4,0XC5,0XC6,0XC7,0XC8,0XC9,0XCA,0XCB,0XCC,0XCD,0XCE,0XCF,
+    0XD0,0XD1,0XD2,0XD3,0XD4,0XD5,0XD6,0XD7,0XD8,0XD9,0XDA,0XDB,0XDC,0XDD,0XDE,0XDF,
+    0XE0,0XE1,0XE2,0XE3,0XE4,0XE5,0XE6,0XE7,0XE8,0XE9,0XEA,0XEB,0XEC,0XED,0XEE,0XEF,
+    0XF0,0XF1,0XF2,0XF3,0XF4,0XF5,0XF6,0XF7,0XF8,0XF9,0XFA,0XFB,0XFC,0XFD,0XFE,0XFF
+};
+unsigned char UpperTable[256] = {
+    0X00,0X01,0X02,0X03,0X04,0X05,0X06,0X07,0X08,0X09,0X0A,0X0B,0X0C,0X0D,0X0E,0X0F,
+    0X10,0X11,0X12,0X13,0X14,0X15,0X16,0X17,0X18,0X19,0X1A,0X1B,0X1C,0X1D,0X1E,0X1F,
+    0X20,0X21,0X22,0X23,0X24,0X25,0X26,0X27,0X28,0X29,0X2A,0X2B,0X2C,0X2D,0X2E,0X2F,
+    0X30,0X31,0X32,0X33,0X34,0X35,0X36,0X37,0X38,0X39,0X3A,0X3B,0X3C,0X3D,0X3E,0X3F,
+    0X40,0X41,0X42,0X43,0X44,0X45,0X46,0X47,0X48,0X49,0X4A,0X4B,0X4C,0X4D,0X4E,0X4F,
+    0X50,0X51,0X52,0X53,0X54,0X55,0X56,0X57,0X58,0X59,0X5A,0X5B,0X5C,0X5D,0X5E,0X5F,
+    0X60,0X41,0X42,0X43,0X44,0X45,0X46,0X47,0X48,0X49,0X4A,0X4B,0X4C,0X4D,0X4E,0X4F,
+    0X50,0X51,0X52,0X53,0X54,0X55,0X56,0X57,0X58,0X59,0X5A,0X7B,0X7C,0X7D,0X7E,0X7F,
+    0X80,0X81,0X82,0X83,0X84,0X85,0X86,0X87,0X88,0X89,0X8A,0X8B,0X8C,0X8D,0X8E,0X8F,
+    0X90,0X91,0X92,0X93,0X94,0X95,0X96,0X97,0X98,0X99,0X9A,0X9B,0X9C,0X9D,0X9E,0X9F,
+    0XA0,0XA1,0XA2,0XA3,0XA4,0XA5,0XA6,0XA7,0XA8,0XA9,0XAA,0XAB,0XAC,0XAD,0XAE,0XAF,
+    0XB0,0XB1,0XB2,0XB3,0XB4,0XB5,0XB6,0XB7,0XB8,0XB9,0XBA,0XBB,0XBC,0XBD,0XBE,0XBF,
+    0XC0,0XC1,0XC2,0XC3,0XC4,0XC5,0XC6,0XC7,0XC8,0XC9,0XCA,0XCB,0XCC,0XCD,0XCE,0XCF,
+    0XD0,0XD1,0XD2,0XD3,0XD4,0XD5,0XD6,0XD7,0XD8,0XD9,0XDA,0XDB,0XDC,0XDD,0XDE,0XDF,
+    0XE0,0XE1,0XE2,0XE3,0XE4,0XE5,0XE6,0XE7,0XE8,0XE9,0XEA,0XEB,0XEC,0XED,0XEE,0XEF,
+    0XF0,0XF1,0XF2,0XF3,0XF4,0XF5,0XF6,0XF7,0XF8,0XF9,0XFA,0XFB,0XFC,0XFD,0XFE,0XFF
+};
+
+// extern unsigned char LowerTable[256];
+// extern unsigned char UpperTable[256];
+// #define TOLOWER(_ch)  LowerTable[((unsigned char)_ch)]
+// #define TOUPPER(_ch)  UpperTable[((unsigned char)_ch)]
+
 int
 to_lowercase(uchar * msg, int len)
 {
     int i;
     for (i = 0; i < len; i++)
-        if (msg[i] >= 'A' && msg[i] <= 'Z')
-            msg[i] = msg[i] + 'a' - 'A';
+        msg[i] = TOLOWER(msg[i]);
+//         if (msg[i] >= 'A' && msg[i] <= 'Z')
+//             msg[i] = msg[i] + 'a' - 'A';
     return 0;
 }
-
 
 int
 to_uppercase(uchar * buf, int n)
 {
     int i;
     for (i = 0; i < n; i++) {
-        if (buf[i] >= 'a' && buf[i] <= 'z')
-            buf[i] = buf[i] + 'A' - 'a';
+        buf[i] = TOUPPER(buf[i]);
+//         if (buf[i] >= 'a' && buf[i] <= 'z')
+//             buf[i] = buf[i] + 'A' - 'a';
     }
     return 0;
 }
@@ -245,7 +326,7 @@ to_uppercase(uchar * buf, int n)
 int
 str_to_uchar4(const char *addr, uchar * val)
 {
-    uint v = 0, tv[4] = { 0 }, idx = 0;
+    uint tv[4] = { 0 }, idx = 0;
     int i, n = strlen(addr);
     for (i = 0; i < n; i++) {
         if (addr[i] >= '0' && addr[i] <= '9')
@@ -270,7 +351,7 @@ str_to_uchar6(uchar * addr, uchar * val)
 {
     ushort tv[8] = { 0 };
     int idx = 0, gap = 0, gapidx = -1, hasgap = 0;
-    int i, n = strlen(addr);
+    int i, n = strlen((const char *)addr);
     char tmp;
     to_lowercase(addr, n);
     memset(val, 0, 16);
@@ -322,7 +403,7 @@ int
 fix_tail(char *domain)
 {
     int len = strlen(domain);
-    char c;
+    uchar c;
     len--;
     c = domain[len];
     if (c == '\r' || c == '\n') {
@@ -440,8 +521,8 @@ is_lowercase(int c)
 int
 empty_function(int i)
 {
-    int j;
-    j = i;
+    /* int j; */
+    /* j = i; */
     return 0;
 }
 
@@ -460,11 +541,11 @@ insert_mem_bar(void)
 
 
 int
-test_lock(pthread_mutex_t * l)
+test_lock(pthread_spinlock_t * l)
 {
-    if (pthread_mutex_trylock(l) < 0)
+    if (pthread_spin_trylock(l) < 0)
         return -1;
-    pthread_mutex_unlock(l);
+    pthread_spin_unlock(l);
     return 0;
 }
 
@@ -542,13 +623,17 @@ uint_hash_function(void *ptr)
 
 
 hashval_t
-nocase_char_hash_function(void *argv)
+nocase_char_hash_function(void *argv, int klen)
 {
-    int len = strlen(argv);
+    int len = klen;
     uchar *buf = argv;
     hashval_t hash = 5381;
-    to_lowercase(buf, len);
+//     to_lowercase(buf, len);
     while (len--)
+    {
+//         *buf = TOLOWER(*buf);
         hash = (((hash << 5) + hash) + *buf++);
+    }
     return hash;
 }
+

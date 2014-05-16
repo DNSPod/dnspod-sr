@@ -2,13 +2,13 @@
  * All rights reserved.
 
  * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met: 
+ * modification, are permitted provided that the following conditions are met:
  *
  * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer. 
+ *    list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution. 
+ *    and/or other materials provided with the distribution.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -22,7 +22,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  * The views and conclusions contained in the software and documentation are those
- * of the authors and should not be interpreted as representing official policies, 
+ * of the authors and should not be interpreted as representing official policies,
  * either expressed or implied, of the FreeBSD Project.
  */
 
@@ -30,9 +30,11 @@
 #ifndef _AUTHOR_H
 #define _AUTHOR_H
 
+#define _GNU_SOURCE
 
 #include "io.h"
-
+#include <sys/ipc.h>
+#include <sys/shm.h>
 
 enum {
     FETCHER_NUM = 2,
@@ -49,6 +51,7 @@ enum {
     NEW_QUERY = 0,
     PROCESS_QUERY = 1,
     TTL_UPDATE = 3,
+    SHM_KEY = 38899,
 };
 
 
@@ -70,13 +73,17 @@ enum {
     LIST_SPACE = 10000,
 };
 
+struct eptcpfds {
+    int ret;
+    uchar domain[256];
+};
 
 struct author {
     int audp,                   //read and send auth server, private
      cudp,                      //send to client, share with other author
      idx;
     struct server *s;
-    pthread_mutex_t lock;       //protect list above
+    pthread_spinlock_t lock;       //protect list above
     struct qoutinfo *list[LIST_SPACE];
     //statis
     int qnum;
@@ -85,15 +92,21 @@ struct author {
     int timex;
     ////
     struct list *el;
-    time_t lastlog;
-    int bdepfd, logfd;
-    pthread_mutex_t dblock[AUTH_DB_NUM];        //protect db in disk
+    int bdepfd;
+    struct log_info *loginfo;
+    pthread_spinlock_t dblock[AUTH_DB_NUM];        //protect db in disk
     uchar databuffer[AUTH_DATA_LEN];
     uchar randombuffer[RANDOM_SIZE];
+    uchar tmpbuffer[BIG_MEM_STEP];
+    uchar tdbuffer[256];
+    uchar tempbuffer[IP_DATA_LEN];
+    uchar dmbuffer[512];
+    uchar ipbuffer[512];
+    struct epoll_event e[BACK_EVENT];
     int rndidx;                 //no lock
     int dataidx;                //no lock
     uchar ip[IP_DATA_LEN];      //shared by all qoutinfos
-    int eptcpfds[EP_TCP_FDS];
+    struct eptcpfds eptcpfds[EP_TCP_FDS];
     uint rdb;                   //records in db
     int ddbefore;
     int underattack;
@@ -107,6 +120,7 @@ struct author {
     uint quizz;
     uint drop;
     uint timeout;
+    int start, end;
 };
 
 
@@ -115,17 +129,18 @@ struct fetcher {
     struct server *s;
     struct msgcache *mc;
     struct list *el;
-    int logfd;
-    time_t lastlog;
-    uchar databuffer[65536];
+    struct log_info *loginfo;
+    uchar originbuffer[AUTH_DATA_LEN];
+    uchar tdbuffer[256];
+    uchar databuffer[AUTH_DATA_LEN];
+    uchar cbbuffer[512];
     int dataidx;
     int qidx;
     //statistics
-    uint pkg;
-    uint send;
-    uint miss;
+    uint64_t pkg;
+    uint64_t send;
+    uint64_t miss;
 };
-
 
 struct server {
     ushort nquizzer, nfetcher;
@@ -144,8 +159,26 @@ struct server {
     //pthread_mutex_t lock;//protect ttlexp
     uint16_t refreshflag;
     time_t lastrefresh;
+    int is_forward;
 };
 
+struct server *global_serv;
+char *g_nameservers[2];
+
+#define MAX_CPU_NUM 65
+struct thread_query_info {
+    unsigned long query_num[9];
+};
+
+
+struct global_query_info {
+    int thread_num;
+    int log_flag;
+    struct thread_query_info query_info[MAX_CPU_NUM];
+};
+
+struct global_query_info *global_out_info;
+int query_type_map[256];
 
 struct seninfo {
     uint len;
@@ -159,8 +192,7 @@ struct seninfo {
 
 void *run_quizzer(void *);
 int run_fetcher(struct fetcher *f);
-int write_back_to_client(uchar *, uchar *, ushort, int, struct sockinfo *,
-                         uchar *, int);
+int write_back_to_client(mbuf_type *mbuf, uchar *, int);
 int global_cron(struct server *);
 int find_from_db(struct baseinfo *qi, struct fetcher *f);
 

@@ -2,13 +2,13 @@
  * All rights reserved.
 
  * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met: 
+ * modification, are permitted provided that the following conditions are met:
  *
  * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer. 
+ *    list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution. 
+ *    and/or other materials provided with the distribution.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -22,17 +22,18 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  * The views and conclusions contained in the software and documentation are those
- * of the authors and should not be interpreted as representing official policies, 
+ * of the authors and should not be interpreted as representing official policies,
  * either expressed or implied, of the FreeBSD Project.
  */
 
 
 #include "dns.h"
 
+extern char *g_nameservers[];
 
-//types we support at the moment
-const enum rrtype support_type[] =
-    { A, NS, CNAME, SOA, MX, TXT, AAAA, SRV };
+// //types we support at the moment
+const enum rrtype support_type[SUPPORT_TYPE_NUM] =
+    { A, NS, CNAME, SOA, MX, TXT, AAAA, SRV, PTR };
 
 
 ////////////////////////////////////////////////////////////////////
@@ -41,7 +42,7 @@ const enum rrtype support_type[] =
 uchar *
 str_to_len_label(uchar * domain, int len)
 {
-    uchar *ptr, l = 0;
+    uchar l = 0;
     int i;
     //we need a extran byte to put len.
     if (domain[len - 1] != 0 || domain[len - 2] != '.')
@@ -63,7 +64,7 @@ str_to_len_label(uchar * domain, int len)
 int
 check_support_type(ushort type)
 {
-    int i, num = sizeof(support_type) / sizeof(enum rrtype);
+    int i, num = SUPPORT_TYPE_NUM;
     for (i = 0; i < num; i++)
         if (type == support_type[i])
             return 0;
@@ -72,57 +73,53 @@ check_support_type(ushort type)
 
 
 //make import info into struct baseinfo
-struct baseinfo
-passer_dns_data(struct sockinfo *si)
+void
+passer_dns_data(mbuf_type *mbuf)
 {
-    uchar *buf = si->buf;
+    uchar *buf = mbuf->buf;
     int num;
-    int i = 0, len = sizeof(struct sockaddr_in);
-    int dlen = 0, seg = 0;
-    struct baseinfo bi;
-    uchar *tail = NULL, *ptrs[MAX_NS_LVL] = { 0 }, *domain = NULL;
-    ushort offset;
+    int dlen = 0;
+    uchar *tail = NULL;
     dnsheader *hdr = (dnsheader *) buf;
-    bi.err = 1;
+    mbuf->err = 1;
     num = ntohs(hdr->qdcount);
     if (num != 1)
-        return bi;
+        return;
     num = ntohs(hdr->ancount);
     if (num != 0)
-        return bi;
+        return;
     num = ntohs(hdr->nscount);
     if (num != 0)
-        return bi;
+        return ;
     num = ntohs(hdr->arcount);
     if (num > 1)                //edns makes ar==1
-        return bi;
-    bi.id = hdr->id;
-    //if(check_client_addr() < 0)
-    //return bi;
-    dlen = check_dns_name(buf + sizeof(dnsheader), &seg);
+        return;
+    mbuf->id = hdr->id;
+    dlen = check_dns_name(buf + sizeof(dnsheader), &(mbuf->lowerdomain));
     if (dlen < 0)
-        return bi;
-    bi.dlen = dlen;
-    tail = bi.origindomain = buf + sizeof(dnsheader);
+    {
+        return;
+    }
+    mbuf->dlen = dlen;
+    tail = mbuf->origindomain = buf + sizeof(dnsheader);
     tail += dlen;
-    bi.type = ntohs(*(ushort *) tail);
-    if (check_support_type(bi.type) == 0)
-        bi.err = 0;
-    return bi;
+    mbuf->qtype = ntohs(*(ushort *) tail);
+    if (check_support_type(mbuf->qtype) == 0)
+        mbuf->err = 0;
+    return;
 }
 
 
 //we'd better send the right domain and id
 int
-send_tc_to_client(uchar * td, struct sockinfo *si, ushort cid)
+send_tc_to_client(mbuf_type *mbuf)
 {
-    uchar buffer[255] = { 0 }, *itor = buffer;
+    uchar *itor = mbuf->buf;
     dnsheader *hdr = (dnsheader *) itor;
     qdns *qd = NULL;
-    int dlen = -1;
-    if (td == NULL || si == NULL)
+    if (mbuf->td == NULL)
         return -1;
-    hdr->id = cid;
+    hdr->id = mbuf->id;
     hdr->flags = 0;
     hdr->flags = SET_QR_R(hdr->flags);
     hdr->flags = SET_RA(hdr->flags);
@@ -131,43 +128,42 @@ send_tc_to_client(uchar * td, struct sockinfo *si, ushort cid)
     hdr->qdcount = htons(1);
     hdr->ancount = hdr->nscount = hdr->arcount = htons(0);
     itor += sizeof(dnsheader);
-    dlen = strlen(td + 1);
-    memcpy(itor, td + 1, dlen + 1);
-    itor = itor + dlen + 1;
+    memcpy(itor, mbuf->td, mbuf->dlen);
+    itor = itor + mbuf->dlen;
     qd = (qdns *) itor;
-    qd->type = htons(td[0]);
+    qd->type = htons(mbuf->qtype);
     qd->dclass = htons(CLASS_IN);
     itor += sizeof(qdns);
-    si->buf = buffer;
-    si->buflen = itor - buffer;
-    udp_write_info(si, 0);
+    mbuf->buflen = itor - mbuf->buf;
+    udp_write_info(mbuf, 0);
     return 0;
 }
 
 
 //transfrom domain from lenlabel format to string
 int
-get_domain_from_msg(uchar * itor, uchar * hdr, uchar * to)
+get_domain_from_msg(uchar * itor, uchar * hdr, uchar * to, int *tmplen)
 {
-    uchar len, *tmp = NULL;
+    uchar len;
     ushort offset = 0;
     len = itor[0];
-    int dlen = 0, tmplen = 0;
+    int dlen = 0;
     int hasptr = 0, infinite = 20;
     offset = htons((ushort) * (ushort *) itor);
+    *tmplen = 0;
     while ((len != 0) && (infinite--)) {
         if (IS_PTR(offset)) {
             itor = hdr + GET_OFFSET(offset);
             if (hasptr == 0) {
                 dlen = 2;
-                if (tmplen != 0)
-                    dlen += tmplen;
+                if (*tmplen != 0)
+                    dlen += *tmplen;
             }
             hasptr = 1;
         }
         to[0] = itor[0];
-        tmplen += 1;            //len
-        tmplen += to[0];        //label
+        *tmplen += 1;            //len
+        *tmplen += to[0];        //label
         if (to[0] > 64)
             return -1;
         to++;
@@ -181,9 +177,9 @@ get_domain_from_msg(uchar * itor, uchar * hdr, uchar * to)
         return -1;
     to[0] = 0;
     to++;
-    tmplen++;
+    (*tmplen)++;
     if (dlen == 0)
-        dlen = tmplen;          //root len is 1
+        dlen = *tmplen;          //root len is 1
     if (dlen > MAX_DOMAIN_LEN)
         return -1;
     return dlen;
@@ -192,24 +188,31 @@ get_domain_from_msg(uchar * itor, uchar * hdr, uchar * to)
 
 //malloced here
 //tn will be free by author before add_to_quizzer
-//and data will be free by release_qoutinfo
+//and lowerdomain will be free by release_qoutinfo
 int
-insert_into_ttltree(struct rbtree *rbt, uchar * td, uint ttl)
+insert_into_ttltree(struct rbtree *rbt, uchar * td, int len, int type, uint ttl, packet_type *lowerdomain)
 {
+    /* printf("insert into ttltree, ttl: %d ", ttl); */
+    /* dbg_print_td(td); */
     struct rbnode node = { 0 };
     struct ttlnode *tn = NULL;
-    int len = 0;
-    len = strlen(td) + 1;
-    //printf("ttl is %u\n",ttl);
     if ((tn = malloc(sizeof(struct ttlnode))) == NULL)
         return -1;
-    if ((tn->data = malloc(len)) == NULL) {
+    if ((tn->lowerdomain = malloc(sizeof(packet_type))) == NULL) {
         free(tn);
         return -1;
     }
     tn->dlen = len;
     tn->exp = ttl;
-    memcpy(tn->data, td, len);
+    tn->type = type;
+    tn->hash = &(tn->lowerdomain->hash[0]);
+    memcpy(tn->lowerdomain, lowerdomain, sizeof(packet_type));
+    int i;
+    for (i = 0; i < tn->lowerdomain->label_count; i++)
+    {
+        tn->lowerdomain->label[i] = tn->lowerdomain->domain + tn->lowerdomain->label_offsets[i];
+    }
+    tn->data = tn->lowerdomain->domain;
     node.key = tn;
     insert_node(rbt, &node);
     return 0;
@@ -219,7 +222,7 @@ insert_into_ttltree(struct rbtree *rbt, uchar * td, uint ttl)
 uint
 random_ttl(uint ttl)
 {
-    uint tmp, ret = ttl % 7;
+    uint ret = ttl % 7;
     ttl = ttl + ret * 3;
     if (ttl > MAX_TTL)
         ttl = MAX_TTL - (ttl % MAX_TTL);
@@ -231,13 +234,13 @@ int
 is_parent(uchar * parent, uchar * son)
 {
     int sp, ss, x;
-    sp = strlen(parent);
-    ss = strlen(son);
+    sp = strlen((const char *)parent);
+    ss = strlen((const char *)son);
     if (ss < sp)
         return -1;
     x = ss - sp;
     son = son + x;
-    if (strcmp(parent, son) == 0)
+    if (strcmp((const char *)parent, (const char *)son) == 0)
         return 0;
     return -1;
 }
@@ -264,36 +267,36 @@ check_dms(uchar * ck, uchar * dms, int num)
 uchar *
 process_rdata(struct hlpp * hlp, uchar * label, int n)
 {
-    uchar buffer[65535] = { 0 };
-    ushort type = 0, class, lth, offset;
-    uint ttl = 0, tmpttl, tx;
-    int i, dlen, bidx = 0, ret;
+    uchar *buffer = hlp->tmpbuf;
+    ushort type = 0, classin, lth, tmptype = 0;
+    uint ttl = 0, tmpttl = 0, tx;
+    int i, dlen, ret, tmplen = 0;
     int *stype = hlp->stype;
     struct htable *ds = hlp->ds;
     struct rbtree *rbt = hlp->rbt;
     uchar *hdr = hlp->buf;
     int mlen = hlp->datalen;
     struct mvalue *mv = (struct mvalue *) buffer;
-    uchar tmpdomain[512] = { 0 }, dm[512] = {
-    0}, *itor = NULL;
-    ushort tmptype = 0;
-    int tag;
+    uchar *tmpdomain = hlp->domainbuf, *dm, *itor = NULL;
+    packet_type lowerdomain;
+    dm = lowerdomain.domain;
+    
+    memset(mv, 0, sizeof(struct mvalue));
     itor = buffer + sizeof(struct mvalue);
     tx = global_now;            ///
+    dm[0] = dm[1] = 0;
     //if(hlp->section != AN_SECTION) //see header comments.
-    //rbt = NULL;
+    rbt = NULL; 
     for (i = 0; i < n; i++) {
-        dlen = get_domain_from_msg(label, hdr, tmpdomain);
-        if (dm[1] == 0 && dm[2] == 0)   //first time
+        dlen = get_domain_from_msg(label, hdr, tmpdomain, &tmplen);
+        if (dm[0] == 0 && dm[1] == 0)   //first time
         {
-            memcpy(dm + 1, tmpdomain, strlen(tmpdomain) + 1);
-            if (check_dms(dm + 1, hlp->dms, hlp->dmsidx) < 0)
-                return NULL;
+            check_dns_name(tmpdomain, &lowerdomain);
         }
         if (dlen < 0)
             return NULL;
         label += dlen;
-        if (get_dns_info(label, &tmptype, &class, &ttl, &lth) < 0)
+        if (get_dns_info(label, &tmptype, &classin, &ttl, &lth) < 0)
             return NULL;
         if (ttl < MIN_TTL)
             ttl = MIN_TTL;
@@ -307,20 +310,15 @@ process_rdata(struct hlpp * hlp, uchar * label, int n)
             ttl = MAX_TTL;
         if (tmpttl == 0)        //first time
             tmpttl = ttl;
-        if ((strcmp(tmpdomain, dm + 1) != 0) || (type != tmptype)) {
-            if (check_dms(dm, hlp->dms, hlp->dmsidx) < 0)
-                return NULL;
-            dm[0] = type;
+        if ((dict_comp_str_equ(tmpdomain, dm) != 0) || (type != tmptype)) {
             mv->ttl = random_ttl(tmpttl + i + (tx % 5)) + tx;
-            mv->hits = 0;
-            mv->seg = 0;
             //23com0
-            if (dm[dm[1] + 2] != 0)     //not top level domain
-                insert_kv_mem(rbt, ds, dm, buffer,
-                              mv->len + sizeof(struct mvalue));
+            if (dm[dm[0] + 2] != 0)     //not top level domain
+                insert_kv_mem(rbt, ds, dm, lowerdomain.label_len[0], type, buffer,
+                              mv->len + sizeof(struct mvalue), 0, &lowerdomain);
             type = tmptype;
-            memcpy(dm + 1, tmpdomain, strlen(tmpdomain) + 1);
-            mv->len = mv->ttl = mv->num = mv->hits = 0;
+            check_dns_name(tmpdomain, &lowerdomain);
+            memset(mv, 0, sizeof(struct mvalue));
             itor = buffer + sizeof(struct mvalue);
         }
         ret = fill_rrset_in_buffer(itor, label, hdr, lth, type, hlp);
@@ -335,24 +333,21 @@ process_rdata(struct hlpp * hlp, uchar * label, int n)
             return NULL;
     }
     if (mv->num > 0) {
-        dm[0] = type;
         mv->ttl = random_ttl(tmpttl + i + (tx % 5)) + tx;
         mv->hits = 0;
         mv->seg = 0;
-        if (dm[dm[1] + 2] != 0) //not top level domain
-            insert_kv_mem(rbt, ds, dm, buffer,
-                          mv->len + sizeof(struct mvalue));
+        if (dm[dm[0] + 2] != 0) //not top level domain
+            insert_kv_mem(rbt, ds, dm, lowerdomain.label_len[0], type, buffer,
+                          mv->len + sizeof(struct mvalue), 0, &lowerdomain);
     }
     return label;
 }
 
 
 int
-check_domain_mask(uchar * domain, uchar * origin)
+check_domain_mask(uchar * domain, uchar * origin, int len)
 {
-    int len = 0;
-    len = strlen(origin);
-    return strncmp(origin, domain, len + 1);
+    return strncmp((const char *)origin, (const char *)domain, len);
 }
 
 
@@ -383,32 +378,90 @@ get_dns_info(uchar * label, ushort * tp, ushort * cls, uint * ttl,
 }
 
 
+//check dns name and to lower table
+unsigned char DnsNameTable[256] = {
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0X2D,0,0,
+    0X30,0X31,0X32,0X33,0X34,0X35,0X36,0X37,0X38,0X39,0,0,0,0,0,0,
+    0,0X61,0X62,0X63,0X64,0X65,0X66,0X67,0X68,0X69,0X6A,0X6B,0X6C,0X6D,0X6E,0X6F,
+    0X70,0X71,0X72,0X73,0X74,0X75,0X76,0X77,0X78,0X79,0X7A,0,0,0,0,0,
+    0,0X61,0X62,0X63,0X64,0X65,0X66,0X67,0X68,0X69,0X6A,0X6B,0X6C,0X6D,0X6E,0X6F,
+    0X70,0X71,0X72,0X73,0X74,0X75,0X76,0X77,0X78,0X79,0X7A,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+};
+unsigned char InvalidDnsNameTable[256] = {
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,
+    0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,
+    1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,
+    1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+};
+
+#define ISVALIDDNSCHAR(_ch)  DnsNameTable[((unsigned char)_ch)]
+#define ISINVALIDDNSCHAR(_ch)  InvalidDnsNameTable[((unsigned char)_ch)]
+
 int
-check_dns_name(uchar * domain, int *seg)
+check_dns_name(uchar * domain, packet_type *lowerdomain)
 {
     uchar len = domain[0], i;
-    int tlen = 0, sg = 0;       //extra total len and type
+    int tlen = 0;       //extra total len and type
+    uchar *dst = lowerdomain->domain;
+    hashval_t *hash = &(lowerdomain->hash[0]);
+    
+    lowerdomain->label_count = 0;
+    lowerdomain->label[lowerdomain->label_count] = dst;
+    lowerdomain->label_offsets[lowerdomain->label_count] = 0;
+    lowerdomain->hash[0] = 5381;
+    *dst = len;
+    *hash = (((*hash << 5) + *hash) + *dst++);
     domain++;
     while (len != 0) {
         if (len > 63)
             return -1;
-        for (i = 0; i < len; i++)       //num a-z A-Z -
-            if (!
-                ((domain[i] >= '0' && domain[i] <= '9')
-                 || (domain[i] >= 'a' && domain[i] <= 'z')
-                 || (domain[i] >= 'A' && domain[i] <= 'Z')
-                 || domain[i] == '-'))
+        for (i = 0; i < len; i++)       //num a-z A-Z -,and to lower
+        {
+            *dst = ISVALIDDNSCHAR(domain[i]);
+            if (!(*dst))
                 return -1;
-        sg++;
-        tlen = tlen + 1 + len;
+            *hash = (((*hash << 5) + *hash) + *dst);
+            dst++;
+        }
         domain = domain + len;
         len = domain[0];
+        lowerdomain->label_count++;
+        lowerdomain->label[lowerdomain->label_count] = dst;
+        lowerdomain->label_offsets[lowerdomain->label_count] = dst - lowerdomain->domain;
+        lowerdomain->hash[lowerdomain->label_count] = 0;
+        *dst = len;
+        *hash = (((*hash << 5) + *hash) + *dst++);
         domain++;
     }
-    tlen++;                     //for end 0
+    for (i = 0; i < lowerdomain->label_count; i++)
+    {
+        lowerdomain->label_len[i] = dst - lowerdomain->label[i];
+    }
+    tlen = lowerdomain->label_len[0];
     if (tlen > 255)
         return -1;
-    *seg = sg;
     return tlen;
 }
 
@@ -419,7 +472,7 @@ make_type_domain(uchar * domain, int dlen, int type, uchar * buffer)
     if (buffer == NULL || domain == NULL)
         return -1;
     buffer[0] = type;
-    memcpy(buffer + 1, domain, dlen + 1);
+    memcpy(buffer + 1, domain, dlen);
     return 0;
 }
 
@@ -439,45 +492,60 @@ check_memcpy(uchar * to, uchar * from, int vlen)
 //k td
 //v mvalue.data
 int
-insert_kv_mem(struct rbtree *rbt, struct htable *ds, uchar * k, uchar * v,
-              int vlen)
+insert_kv_mem(struct rbtree *rbt, struct htable *ds, uchar * k, int klen, 
+              int type, uchar * v, int vlen, int hijack, packet_type *lowerdomain)
 {
     uchar *val = NULL;
-    struct mvalue *mv = NULL, tmp;
+    struct mvalue *mv = NULL, tmp = {0};
     int ret = -1;
     struct rbnode *pn = NULL;
-    struct ttlnode tn = { 0 };
+    struct ttlnode tn = { 0 }, *tmp_tn = NULL;
+    int idx;
     if (vlen < 0 || vlen > MAX_RECORD_SIZE)
         return -1;
-    hashval_t hash = nocase_char_hash_function(k);
-    hash = get_pre_mem_hash(k);
+    hashval_t *hash = &(lowerdomain->hash[0]);
+    idx = get_pre_mem_hash(k, klen, hash);
     val = malloc(vlen);
     if (val == NULL)
         return -1;
     memcpy(val, v, vlen);
     mv = (struct mvalue *) v;
-    ret = htable_insert(ds + hash, k, val, 1, &tmp);    //mem, replace
-    if (ret == 2)
+    ret = htable_insert(ds + idx, k, klen, type, val, 1, &tmp, hash);    //mem, replace
+    if (ret == 2) {
         free(val);
-    if (mv->ttl == (MAX_TTL + 1))       //never expired
-        return 0;
-    if (rbt == NULL)
-        return 0;
-    //data exists in htable, delete it in ttl tree, then insert
-    pthread_mutex_lock(&rbt->lock);
-    if (ret != 0) {
-        tn.dlen = strlen(k) + 1;
-        //tmp get old data
-        tn.exp = tmp.ttl;
-        tn.data = k;
-        pn = find_node(rbt, &tn);
-        //if update, we had delete tn in rbt
-        //else update tn in rbt
-        if (pn != NULL)
-            delete_node(rbt, pn);
     }
-    ret = insert_into_ttltree(rbt, k, mv->ttl); //ttl expired tree
-    pthread_mutex_unlock(&rbt->lock);
+    if (rbt) {
+        if (ret != 0) {
+            pthread_spin_lock(&rbt->lock);
+            tn.dlen = klen;
+            //tmp get old data
+            tn.exp = tmp.ttl;
+            tn.type = type;
+            tn.lowerdomain = NULL;
+            tn.data = k;
+            pn = find_node(rbt, &tn);
+            //if update, we had delete tn in rbt
+            //else update tn in rbt
+            if (pn != NULL) {
+                tmp_tn = delete_node(rbt, pn);
+                if (tmp_tn) {
+                    free(tmp_tn->lowerdomain);
+                    free(tmp_tn);
+                }
+            }
+            pthread_spin_unlock(&rbt->lock);
+        }
+    }
+    if (mv->ttl == (MAX_TTL + 1)) {       //never expired
+        return 0;
+    }
+    if (rbt == NULL) {
+        return 0;
+    }
+    //data exists in htable, delete it in ttl tree, then insert
+    pthread_spin_lock(&rbt->lock);
+    ret = insert_into_ttltree(rbt, k, klen, type, mv->ttl, lowerdomain); //ttl expired tree
+    pthread_spin_unlock(&rbt->lock);
     return 0;
 }
 
@@ -503,7 +571,7 @@ get_level(uchar * itor)
 uchar *
 fill_all_records_in_msg(struct hlpc * h, struct hlpf * hf, int idx)
 {
-    int datalen, step = 0;
+    int step = 0;
     uint16_t txtlen;
     uchar *tmp = NULL, *to = hf->to, *from = hf->from;
     struct fillmsg *fm = (struct fillmsg *) (hf->to);
@@ -532,6 +600,8 @@ fill_all_records_in_msg(struct hlpc * h, struct hlpf * hf, int idx)
         h[idx].off = to - hf->hdr;
         h[idx].ref = -1;
         h[idx].level = get_level(h[idx].name);
+        h[idx].mt = 0;
+        h[idx].len = hf->len;
         tmp = fill_name_in_msg(h, to, idx);
         fm->len = htons(tmp - to);
         to = tmp;
@@ -545,6 +615,8 @@ fill_all_records_in_msg(struct hlpc * h, struct hlpf * hf, int idx)
         h[idx].off = to - hf->hdr;
         h[idx].ref = -1;
         h[idx].level = get_level(h[idx].name);
+        h[idx].mt = 0;
+        h[idx].len = hf->len;
         tmp = fill_name_in_msg(h, to, idx);
         fm->len = htons(tmp - to + sizeof(uint16_t));
         to = tmp;
@@ -565,6 +637,8 @@ fill_all_records_in_msg(struct hlpc * h, struct hlpf * hf, int idx)
         h[idx].off = to - hf->hdr;
         h[idx].ref = -1;
         h[idx].level = get_level(h[idx].name);
+        h[idx].mt = 0;
+        h[idx].len = hf->len;
         tmp = fill_name_in_msg(h, to, idx);
         fm->len = htons(tmp - to + sizeof(uint16_t) * 3);
         to = tmp;
@@ -607,7 +681,7 @@ reverse_compare(uchar * from, int flen, uchar * to, int tolen)
 uchar *
 fill_name_in_msg(struct hlpc * h, uchar * to, int idx)
 {
-    int i, mm = 0, m = 0, len, fill = 0, ml = 0, jump = 0, off = 0;
+    int i/*, mm = 0*/, m = 0, len, fill = 0, jump = 0, off = 0;
     const ushort base = 0xc000;
     uchar *itor = h[idx].name, *dn = NULL;
     if (idx == 0) {
@@ -615,17 +689,15 @@ fill_name_in_msg(struct hlpc * h, uchar * to, int idx)
         to += sizeof(ushort);
         return to;
     }
-    len = strlen(h[idx].name);
+    len = h[idx].len;
     for (i = idx - 1; i >= 0; i--) {
-        m = reverse_compare(h[i].name, strlen(h[i].name) + 1, h[idx].name,
-                            len + 1);
+        m = reverse_compare(h[i].name, h[i].len, h[idx].name,
+                            len);
         if (m > h[i].mt) {
             h[idx].mt = m;      //max match
             h[idx].ref = i;
         }
     }
-    if (mm > len)
-        return NULL;
     if (h[idx].mt >= 0)
         fill = h[idx].level - h[idx].mt;
     else
@@ -657,18 +729,22 @@ fill_name_in_msg(struct hlpc * h, uchar * to, int idx)
 //jump from author.c
 uchar *
 fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
-                  uchar * hdr, uint16_t * ttloff)
+                  uchar * hdr)
 {
     uchar type;
-    type = from[0];
-    int i, step = 0, ttloffidx;
+    int i, step = 0;
     uint16_t txtlen = 0;
     struct hlpf hf;
+    int num = 0;
     struct mvalue *mv = NULL;
-    ttloffidx = ttloff[0];      //must be 0
+    type = from[0];
     from++;                     //type
     mv = (struct mvalue *) from;
     from = from + sizeof(struct mvalue);
+    num = mv->num;
+    if (num > MAX_MSG_SEG) {
+        num = MAX_MSG_SEG;
+    }
     hf.hdr = hdr;
     hf.ttl = mv->ttl;
     hf.type = type;
@@ -680,7 +756,7 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
     {
     case A:
     case AAAA:
-        for (i = 0; i < mv->num; i++) {
+        for (i = 0; i < num; i++) {
             to = fill_name_in_msg(h, to, n);
             hf.from = from;
             hf.to = to;
@@ -688,13 +764,6 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
             //then we get ttl's position
             //plus hdr we get it's offset
             //only for A record
-            if (type == A) {
-                //ttloff[0] idx
-                //+1, jump it
-                ttloff[ttloff[0] + 1] =
-                    to + sizeof(uint16_t) + sizeof(uint16_t) - hdr;
-                ttloff[0]++;
-            }
             to = fill_all_records_in_msg(h, &hf, n);
             from += step;
         }
@@ -708,28 +777,30 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
         return to;
         break;
     case NS:
-        for (i = 0; i < mv->num; i++) {
+        for (i = 0; i < num; i++) {
             to = fill_name_in_msg(h, to, n);
             hf.from = from;
             hf.to = to;
+            hf.len = strlen((const char *)from) + 1;
             to = fill_all_records_in_msg(h, &hf, n);
-            from += strlen(from) + 1;
+            from += hf.len;//strlen((const char *)from) + 1;
         }
         return to;
         break;
     case MX:
-        for (i = 0; i < mv->num; i++) {
+        for (i = 0; i < num; i++) {
             to = fill_name_in_msg(h, to, n);
             hf.from = from;
             hf.to = to;
+            hf.len = strlen((const char *)from) + 1;
             to = fill_all_records_in_msg(h, &hf, n + i);
             from += sizeof(uint16_t);   //jump ref
-            from += strlen(from) + 1;   //jump name and tail 0
+            from += hf.len;//strlen((const char *)from) + 1;   //jump name and tail 0
         }
         return to;
         break;
     case TXT:
-        for (i = 0; i < mv->num; i++) {
+        for (i = 0; i < num; i++) {
             to = fill_name_in_msg(h, to, n);
             hf.from = from;
             hf.to = to;
@@ -740,13 +811,14 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
         return to;
         break;
     case SRV:
-        for (i = 0; i < mv->num; i++) {
+        for (i = 0; i < num; i++) {
             to = fill_name_in_msg(h, to, n);
             hf.from = from;
             hf.to = to;
+            hf.len = strlen((const char *)from) + 1;
             to = fill_all_records_in_msg(h, &hf, n);
             from += sizeof(uint16_t) * 3;       //pri wei port
-            from += strlen(from) + 1;   //target
+            from += hf.len;//strlen((const char *)from) + 1;   //target
         }
         return to;
         break;
@@ -761,38 +833,30 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
 uchar *
 fill_header_in_msg(struct setheader * sh)
 {
-    uchar llen = 0;
     uchar *itor = sh->itor;
     dnsheader *hdr = (dnsheader *) (sh->itor);
     qdns *qd;
-    int i, dlen;
-    hdr->id = sh->id;
     hdr->flags = 0;
     hdr->flags = SET_QR_R(hdr->flags);
     hdr->flags = SET_RA(hdr->flags);
-    //hdr->flags = SET_ERROR(hdr->flags,mf->ed);
-    hdr->flags = htons(hdr->flags);
-    hdr->qdcount = htons(1);
-    hdr->ancount = htons(sh->an);
-    hdr->nscount = htons(sh->ns);
-    hdr->arcount = htons(0);
+    hdr->flags = DNS_GET16(hdr->flags);
+    hdr->ancount = DNS_GET16(sh->an);
+    hdr->nscount = DNS_GET16(sh->ns);
+    hdr->arcount = 0; //DNS_GET16(0);
     itor += sizeof(dnsheader);
-    dlen = strlen(sh->od) + 1;
-    memcpy(itor, sh->od, dlen);
-    itor = itor + dlen;
+    itor = itor + sh->dlen;
     qd = (qdns *) itor;
-    qd->type = htons(sh->type);
-    qd->dclass = htons(CLASS_IN);
+    qd->type = DNS_GET16(sh->type);
+    qd->dclass = DNS_GET16(CLASS_IN);
     itor += sizeof(qdns);
     return itor;
 }
 
 
 int
-make_dns_msg_for_new(uchar * itor, ushort msgid, uchar * d, ushort type)
+make_dns_msg_for_new(uchar * itor, ushort msgid, uchar * d, int len, ushort type)
 {
     uchar *buf = itor;
-    int need = 0, i, len;
     dnsheader *hdr = NULL;
     qdns *qd = NULL;
     hdr = (dnsheader *) buf;
@@ -801,8 +865,8 @@ make_dns_msg_for_new(uchar * itor, ushort msgid, uchar * d, ushort type)
     hdr->qdcount = htons(1);
     hdr->ancount = hdr->nscount = hdr->arcount = htons(0);
     buf += sizeof(dnsheader);
-    len = strlen(d) + 1;
-    memcpy(buf, d, len + 1);
+    memcpy(buf, d, len);
+    buf[len - 1] = 0;
     buf += len;
     qd = (qdns *) buf;
     qd->type = htons(type);
@@ -819,7 +883,7 @@ fill_rrset_in_buffer(uchar * buffer, uchar * label, uchar * hdr, int lth,
 {
     int mlen = 0;
     uint16_t len = lth;
-    uchar nsc[512] = { 0 };
+//     uchar nsc[512] = { 0 };
     struct srv *from, *to;
     switch (type) {
     case A:
@@ -827,18 +891,12 @@ fill_rrset_in_buffer(uchar * buffer, uchar * label, uchar * hdr, int lth,
         memcpy(buffer, label, 4);
         break;
     case NS:
-        get_domain_from_msg(label, hdr, nsc);
-        hlp->dmsidx++;
-        strcpy(hlp->dms + hlp->dmsidx * DMS_SIZE, nsc);
-        mlen = strlen(nsc) + 1;
-        memcpy(buffer, nsc, mlen);
+        get_domain_from_msg(label, hdr, buffer, &mlen);
+        to_lowercase(buffer, mlen);
         break;
     case CNAME:
-        get_domain_from_msg(label, hdr, nsc);
-        hlp->dmsidx++;
-        strcpy(hlp->dms + hlp->dmsidx * DMS_SIZE, nsc);
-        mlen = strlen(nsc) + 1;
-        memcpy(buffer, nsc, mlen);
+        get_domain_from_msg(label, hdr, buffer, &mlen);
+        to_lowercase(buffer, mlen);
         break;
     case SOA:                  //do nothing
         mlen = 0;
@@ -851,11 +909,7 @@ fill_rrset_in_buffer(uchar * buffer, uchar * label, uchar * hdr, int lth,
         memcpy(buffer, label, 2);       //reference value
         label += 2;             //16bits
         buffer += 2;
-        get_domain_from_msg(label, hdr, nsc);
-        hlp->dmsidx++;
-        strcpy(hlp->dms + hlp->dmsidx * DMS_SIZE, nsc);
-        mlen = strlen(nsc) + 1;
-        memcpy(buffer, nsc, mlen);
+        get_domain_from_msg(label, hdr, buffer, &mlen);
         mlen += 2;
         break;
     case SRV:
@@ -866,9 +920,7 @@ fill_rrset_in_buffer(uchar * buffer, uchar * label, uchar * hdr, int lth,
         to->port = from->port;
         buffer += sizeof(uint16_t) * 3;
         label += sizeof(uint16_t) * 3;
-        get_domain_from_msg(label, hdr, nsc);
-        mlen = strlen(nsc) + 1;
-        memcpy(buffer, nsc, mlen);
+        get_domain_from_msg(label, hdr, buffer, &mlen);
         mlen += sizeof(uint16_t) * 3;
         break;
     case TXT:                  //the only case that lth used
@@ -973,8 +1025,8 @@ is_glue(uchar * domain, uchar * ns)
 {
     uchar d, n;
     int dlen, nlen;
-    dlen = strlen(domain);
-    nlen = strlen(ns);
+    dlen = strlen((const char *)domain);
+    nlen = strlen((const char *)ns);
     dlen--;
     nlen--;
     if (dlen >= nlen)
@@ -998,23 +1050,29 @@ is_glue(uchar * domain, uchar * ns)
 //Here we dont care the cname in fwd table, if somebody want to do this
 //Add the main domain in fwd table
 int
-pre_find(struct qoutinfo *qo, struct htable *fwd, struct htable *ht,
+pre_find(mbuf_type *mbuf, struct htable *fwd, struct htable *ht,
          uchar * ip)
 {
-    uchar td[512] = { 0 }, *itor = NULL;
+    uchar *td, *itor = NULL/*, type*/;
     int xlen = 0, dbg = 100;
-    uchar buffer[2000] = { 0 };
+//     uchar *buffer[2000];
     struct mvalue *mv = NULL;
-    qo->qname = Q_DOMAIN;       //default
-    if (qo->hascname == 1) {
-        qo->qing = qo->qbuffer; //latest cname
-        memcpy(td + 1, qo->qbuffer, strlen(qo->qbuffer) + 1);
+    int td_len, new_td_len;
+    hashval_t *hash, thash = 0;
+    mbuf->qname = Q_DOMAIN;       //default
+    if (mbuf->hascname == 1) {
+        mbuf->qing = mbuf->qbuffer; //latest cname
+        td_len = mbuf->qlen;
+        td = mbuf->qbuffer;
+        mbuf->qhash = &(mbuf->qbuffer_hash);
     } else {
-        memcpy(td, qo->td, qo->dlen + 1);
-        qo->qing = qo->td + 1;
+        td_len = mbuf->dlen;
+        mbuf->qing = mbuf->td;
+        td = mbuf->td;
+        mbuf->qhash = &(mbuf->lowerdomain.hash[0]);
     }
-    td[0] = A;                  //forward ip
-    xlen = htable_find(fwd, td, ip, 1900, NULL);        //100 for struct mvalue
+    hash = mbuf->qhash;
+    xlen = htable_find(fwd, td, td_len, A, ip, 1900, NULL, hash);        //100 for struct mvalue
     if (xlen > 0) {
         ip = ip + xlen;
         mv = (struct mvalue *) ip;
@@ -1023,24 +1081,45 @@ pre_find(struct qoutinfo *qo, struct htable *fwd, struct htable *ht,
         mv->hits = 0;
         mv->len = 0;
         return xlen;
+    } else {
+        uchar *new_td = mbuf->tdbuffer;
+        if (mbuf->lowerdomain.label_count > 1) {
+            new_td[0] = 1;
+            new_td[1] = '*';
+            new_td_len = mbuf->lowerdomain.label_len[mbuf->lowerdomain.label_count - 2];
+            memcpy(new_td + 2, mbuf->lowerdomain.label[mbuf->lowerdomain.label_count - 2], new_td_len);
+            thash = 0;
+            int rlen = htable_find(fwd, new_td, new_td_len + 2, A, ip, 1900, NULL, &thash);
+            if (rlen > 0) {
+                ip = ip + rlen;
+                mv = (struct mvalue *) ip;
+                mv->num = 0;            //tail 0
+                mv->ttl = 0;
+                mv->hits = 0;
+                mv->len = 0;
+                return rlen;
+            }
+        }
     }
-    if (qo->td[0] == CNAME)     //query cname
+    if (mbuf->qtype == CNAME)     //query cname
         return 0;               //find nothing
-    td[0] = CNAME;
-    itor = buffer;
+    itor = mbuf->tempbuffer;
     while (1)                   //find cname
     {
-        xlen = find_record_with_ttl(ht, td, itor, 2000, NULL);
+        xlen = find_record_with_ttl(ht, td, td_len, CNAME, itor, 2000, NULL, hash);
         if (xlen > 0) {         //if domain has a cname, put it in qo->qbuffer
-            qo->qname = Q_CNAME;
-            qo->hascname = 1;
+            mbuf->qname = Q_CNAME;
+            mbuf->hascname = 1;
             mv = (struct mvalue *) itor;
             itor = itor + sizeof(struct mvalue);
-            memcpy(td + 1, itor, mv->len);
             if (mv->len > (QBUFFER_SIZE - 1))
                 return -1;
-            memcpy(qo->qbuffer, itor, mv->len);
-            qo->qing = qo->qbuffer;
+            memcpy(mbuf->qbuffer, itor, mv->len);
+            mbuf->qing = mbuf->qbuffer;
+            mbuf->qlen = td_len = mv->len;
+            mbuf->qbuffer_hash = 0;
+            hash = &(mbuf->qbuffer_hash);
+            td = mbuf->qbuffer;
         } else
             break;
         if ((dbg--) == 0)
@@ -1058,8 +1137,8 @@ int
 transfer_record_to_msg(uchar * buff, uchar * key, uchar * msg, int msglen,
                        uint16_t * ttloff)
 {
-    uint16_t segs = ttloff[0], i, *len = NULL, totallen = 0;
-    uchar *val = NULL, *itor = NULL;
+    uint16_t segs = ttloff[0], totallen = 0;
+    uchar *itor = NULL;
     struct mvalue *mv = NULL;
     if (segs == 0 || segs > 100)
         return -1;
@@ -1092,17 +1171,16 @@ transfer_record_to_msg(uchar * buff, uchar * key, uchar * msg, int msglen,
 //copy data from ipmsg to ipbuffer
 //then copy data from ipbuffer to ipmsg
 int
-make_A_record_from_segment(uchar * ipmsg)
+make_A_record_from_segment(uchar * ipmsg, uchar *iitor)
 {
     int reallen = 0;
-    uchar ipbuffer[400] = { 0 };
     uchar *ipto = NULL, *ipfrom = NULL;
     struct mvalue *mv = NULL;
     uint16_t off;
     int segs = 0, i;
     mv = (struct mvalue *) ipmsg;
     segs = mv->seg;
-    ipto = ipbuffer;
+    ipto = iitor + sizeof(struct mvalue);
     for (i = 0; i < segs; i++) {
         off =
             *(uint16_t *) (ipmsg + sizeof(struct mvalue) +
@@ -1113,9 +1191,7 @@ make_A_record_from_segment(uchar * ipmsg)
         ipto += 4;
     }
     mv->len = reallen;
-    ipfrom = ipbuffer;
-    ipto = ipmsg + sizeof(struct mvalue);
-    memcpy(ipto, ipfrom, reallen);
+    memcpy(iitor, ipmsg, sizeof(struct mvalue));
     return 0;
 }
 
@@ -1123,29 +1199,30 @@ make_A_record_from_segment(uchar * ipmsg)
 //we found some ns
 //try to find their ip
 int
-retrive_ip(uchar * itor, int num, uchar * ip, struct htable *ht, int *fq)
+retrive_ip(mbuf_type *mbuf, uchar * itor, int num, uchar * ip, struct htable *ht, int *fq)
 {
     struct mvalue *mi = NULL;
     int i, xlen, iplen = IP_DATA_LEN;
     int got = 0;
-    uchar ipbuffer[400] = { 0 };
+    uchar *ipbuffer = mbuf->ipbuffer;
     *fq = 0;
-    uchar nstd[512] = { 0 }, *iitor = ip;
+    uchar *nstd, *iitor = ip;
+    hashval_t hash;
+    
     for (i = 0; i < num; i++) {
-        nstd[0] = A;            //NS's A
-        xlen = strlen(itor) + 1;
-        memcpy(nstd + 1, itor, xlen);
+        xlen = strlen((const char *)itor) + 1;
+        nstd = itor;
         itor = itor + xlen;
+        hash = 0;
         xlen =
-            find_record_with_ttl(ht, nstd, ipbuffer,
-                                 iplen - sizeof(struct mvalue), NULL);
+            find_record_with_ttl(ht, nstd, xlen, A, ipbuffer,
+                                 iplen - sizeof(struct mvalue), NULL, &hash);
         if (xlen > 0) {
             mi = (struct mvalue *) ipbuffer;
             if (mi->seg > 0)    //segment
-                make_A_record_from_segment(ipbuffer);
-            //after make_A_xxxx
-            //ipbuffer changed and mi changed too
-            memcpy(iitor, ipbuffer, mi->len + sizeof(struct mvalue));
+                make_A_record_from_segment(ipbuffer, iitor);
+            else
+                memcpy(iitor, ipbuffer, mi->len + sizeof(struct mvalue));
             iitor = iitor + mi->len + sizeof(struct mvalue);
             iplen = iplen - mi->len - sizeof(struct mvalue);
             got++;
@@ -1170,11 +1247,10 @@ retrive_ip(uchar * itor, int num, uchar * ip, struct htable *ht, int *fq)
 
 
 int
-fill_extra_addr(struct qoutinfo *qo, uchar * ip)
+fill_extra_addr(uchar * ip)
 {
     const char *extra[] = {
-        "8.8.8.8",              //google dns
-        "202.102.154.3",        //public dns of shandong province
+        g_nameservers[0], g_nameservers[1]
     };
     int i, n;
     struct mvalue *mv = NULL;
@@ -1203,73 +1279,125 @@ fill_extra_addr(struct qoutinfo *qo, uchar * ip)
 
 //ht,type,domain,dlen
 int
-find_addr(struct htable *fwd, struct htable *ht, struct qoutinfo *qo,
-          uchar * ip)
+find_addr(struct htable *fwd, struct htable *ht, mbuf_type *mbuf,
+          uchar * ip, int forward)
 {
-    int ret, xlen = 0, dbg = 100, iplen = IP_DATA_LEN;
+    int ret, xlen = 0, dbg = 100;
     int first_query, i;
     struct mvalue *mv = NULL;
-    uchar td[512] = { 0 }, buffer[IP_DATA_LEN] = {
-    0}, *itor = NULL, *glue = NULL;
-    if (qo->qtimes > (MAX_TRY_TIMES - 3)) {
-        fill_extra_addr(qo, ip);
+    uchar *td, *buffer = mbuf->tempbuffer, *itor = NULL, *glue = NULL;
+    int td_len, diff_len;
+    int ori_flag = 0;
+    hashval_t thash, *hash;
+    int label_count = 0;
+    
+    if (mbuf->qtimes > (MAX_TRY_TIMES - 3)) {
+        fill_extra_addr(ip);
         return 0;
     }
-    ret = pre_find(qo, fwd, ht, ip);
+    
+    ret = pre_find(mbuf, fwd, ht, ip);
     if (ret > 0)                //find fwd
         return 0;
-    if (ret < 0)                //error
+    else if (ret < 0)                //error
         return ret;
-    itor = td;
-    //now we have domain or latest cname in qo->qing 
+    else {
+        if (forward) {
+            fill_extra_addr(ip);
+            return 0;
+        }
+    }
+    //now we have domain or latest cname in qo->qing
     //point to qo->td or qo->qbuffer
-    memcpy(td + 1, qo->qing, strlen(qo->qing) + 1);
-    td[0] = NS;
+    td = mbuf->qing;
+    itor = td;
+    hash = mbuf->qhash;
+    td_len = mbuf->qlen;
+    if (mbuf->hascname)
+        ori_flag = 1;
     while (1)                   //put ns in itor(buffer), put ns'a in iitor(ip)
     {
         while (1) {
-            ret = find_record_with_ttl(ht, itor, buffer, IP_DATA_LEN, NULL);    //ns do not
+            ret = find_record_with_ttl(ht, itor, td_len, NS, buffer, IP_DATA_LEN, NULL, hash);    //ns do not
             if (ret > 0)
                 break;
-            itor = itor + itor[1] + 1;  //parent, assert itor[1] < 64
-            itor[0] = NS;
-            if (itor[1] == 0)   //root
-                return -1;
             if ((dbg--) == 0)   //if mess buffer
                 return -1;
+            if (ori_flag)
+            {
+                diff_len = itor[0] + 1;
+                itor = itor + diff_len;  //parent, assert itor[1] < 64
+                if (itor[0] == 0)   //root
+                    return -1;
+                
+                td_len -= diff_len;
+                thash = 0;
+                hash = &thash;
+            }
+            else
+            {
+                label_count++;
+                if (label_count >= mbuf->lowerdomain.label_count) // root
+                    return -1;
+                itor = mbuf->lowerdomain.label[label_count];
+                td_len = mbuf->lowerdomain.label_len[label_count];
+                hash = &(mbuf->lowerdomain.hash[label_count]);
+            }
         }
         mv = (struct mvalue *) buffer;  //ns record in buffer
         glue = itor;            //data in td, real domain we get ns //key
         itor = buffer + sizeof(struct mvalue);  //data //value
-        ret = retrive_ip(itor, mv->num, ip, ht, &first_query);
+        ret = retrive_ip(mbuf, itor, mv->num, ip, ht, &first_query);
         if ((ret > 0)) {
-            if ((ret < mv->num) && (qo->qns == 1)) {
-                qo->qns = 0;
+            if ((ret < mv->num) && (mbuf->qns == 1)) {
+                mbuf->qns = 0;
                 for (i = 0; i < first_query; i++) {
-                    xlen = strlen(itor) + 1;
+                    xlen = strlen((const char *)itor) + 1;
                     itor = itor + xlen;
                 }
-                xlen = strlen(itor) + 1;
-                memcpy(qo->qbuffer, itor, xlen);
-                qo->qing = qo->qbuffer;
-                memcpy(td + 1, qo->qbuffer, xlen);
             } else
                 return 0;
         }
-        if (is_glue(glue, buffer + sizeof(struct mvalue)) != 1) //domain and it's ns
+        if (is_glue(glue, itor) != 1) //domain and it's ns,should be use itor,not buffer + sizeof(struct mvalue)
         {
-            itor = buffer + sizeof(struct mvalue);
-            xlen = strlen(itor) + 1;    //ns len
-            if (xlen > (QBUFFER_SIZE - 1))
-                return -1;
-            memcpy(qo->qbuffer, itor, xlen);
-            qo->qing = qo->qbuffer;
-            memcpy(td + 1, qo->qbuffer, xlen);
+            if (!ori_flag)
+                ori_flag = 1;
+            {
+                xlen = strlen((const char *)itor) + 1;    //ns len
+                if (xlen > (QBUFFER_SIZE - 1))
+                    return -1;
+                memcpy(mbuf->qbuffer, itor, xlen);
+                mbuf->qbuffer_hash = 0;
+                mbuf->qing = mbuf->qbuffer;
+                mbuf->qhash = &(mbuf->qbuffer_hash);
+                mbuf->qlen = xlen;
+                hash = mbuf->qhash;
+                td_len = mbuf->qlen;
+                td = mbuf->qing;
+            }
             itor = td;          //itor point to key now
-        } else                  //qbuffer and qing need NO change
-            itor = glue + glue[1] + 1;  //glue[0] is type,glue[1] is label length
-        itor[0] = NS;
-        qo->qname = Q_NS;
+        } else {                  //qbuffer and qing need NO change
+            if (ori_flag)
+            {
+                diff_len = glue[0] + 1;
+                itor = glue + diff_len;  //glue[0] is type,glue[1] is label length
+                if (itor[0] == 0)   //root
+                    return -1;
+                td_len -= diff_len;
+                thash = 0;
+                hash = &thash;
+            }
+            else
+            {
+                label_count++;
+                if (label_count >= mbuf->lowerdomain.label_count) // root
+                    return -1;
+                itor = mbuf->lowerdomain.label[label_count];
+                td_len = mbuf->lowerdomain.label_len[label_count];
+                hash = &(mbuf->lowerdomain.hash[label_count]);
+            }
+        }
+        mbuf->qname = Q_NS;
         if ((dbg--) == 0)
             return -1;
     }
@@ -1282,14 +1410,13 @@ find_addr(struct htable *fwd, struct htable *ht, struct qoutinfo *qo,
 int
 check_qo(struct qoutinfo *qo)
 {
-    uchar type;
+    /* uchar type; */
     if (qo == NULL)
         return 0;
     if (qo->hascname > 1)
         printf("qo error\n");
     if (qo->td == NULL)
         printf("qo error2\n");
-    type = qo->td[0];
     return 0;
 }
 
@@ -1311,7 +1438,7 @@ dbg_print_domain(uchar * hdr, uchar * itor)
     uchar len;
     uchar *tmp = NULL;
     ushort offset;
-    int i, debug = 100;
+    int debug = 100;
     len = itor[0];
     if (len == 0) {
         printf("root\n");
@@ -1340,7 +1467,6 @@ void
 dbg_print_ip(uchar * ip, enum rrtype type)
 {
     int i;
-    int hasbarr = 0;
     uint ipv4[4] = { 0 };
     for (i = 0; i < 4; i++)
         ipv4[i] = *(uchar *) (ip + i);

@@ -2,13 +2,13 @@
  * All rights reserved.
 
  * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met: 
+ * modification, are permitted provided that the following conditions are met:
  *
  * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer. 
+ *    list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution. 
+ *    and/or other materials provided with the distribution.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -22,7 +22,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
  * The views and conclusions contained in the software and documentation are those
- * of the authors and should not be interpreted as representing official policies, 
+ * of the authors and should not be interpreted as representing official policies,
  * either expressed or implied, of the FreeBSD Project.
  */
 
@@ -145,7 +145,6 @@ insert_node(struct rbtree *rbt, struct rbnode *pnd)
 {
     struct rbnode *tmp = &rbt->nil, *itor = rbt->root;
     struct rbnode *nd = malloc(sizeof(struct rbnode));
-    struct douint *p = pnd->key;
     if (nd == NULL)
         return -1;
     *nd = *pnd;
@@ -171,6 +170,7 @@ insert_node(struct rbtree *rbt, struct rbnode *pnd)
     insert_fixup(rbt, nd);
     rbt->size++;
     //pthread_mutex_unlock(&(rbt->lock));
+    /* printf("\t\t\t\t\t\t\tafter insert, rbt size: %d\n", get_rbt_size(rbt)); */
     return 0;
 }
 
@@ -280,12 +280,14 @@ min_node(struct rbtree *rbt)
 void *
 delete_node(struct rbtree *rbt, struct rbnode *nd)
 {
-    void *val = NULL;
+    struct ttlnode *val = NULL;
     struct rbnode *ret = nd;
     struct rbnode *tmp, *itor;
     if (nd == NULL || rbt == NULL)
         return NULL;
     val = nd->key;
+    /* printf("delete node ttl: %d ", val->exp); */
+    /* dbg_print_td(val->data); */
     //pthread_mutex_lock(&(rbt->lock));
     if (nd->left == &rbt->nil || nd->right == &rbt->nil)
         tmp = nd;
@@ -313,6 +315,7 @@ delete_node(struct rbtree *rbt, struct rbnode *nd)
     free(tmp);
     rbt->size--;
     //pthread_mutex_unlock(&(rbt->lock));
+    /* printf("\t\t\t\t\t\t\tafter delete, rbt size: %d\n", get_rbt_size(rbt)); */
     return val;
 }
 
@@ -326,7 +329,7 @@ create_rbtree(comprbt * c, void *argv)
     rbt->argv = argv;
     rbt->c = c;
     rbt->size = 0;
-    pthread_mutex_init(&rbt->lock, NULL);
+    pthread_spin_init(&rbt->lock, 0);
     rbt->nil.parent = &(rbt->nil);
     rbt->nil.left = &(rbt->nil);
     rbt->nil.right = &(rbt->nil);
@@ -359,7 +362,6 @@ int
 rbtree_test(void)
 {
     int i, j, len, slice, ret;
-    struct timeval tv;
     struct rbnode node, *pn = NULL;
     struct ttlnode *tn = NULL;
     struct rbtree *rbt = NULL;
