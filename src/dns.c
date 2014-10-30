@@ -385,7 +385,7 @@ unsigned char DnsNameTable[256] = {
     0,0,0,0,0,0,0,0,0,0,0,0,0,0X2D,0,0,
     0X30,0X31,0X32,0X33,0X34,0X35,0X36,0X37,0X38,0X39,0,0,0,0,0,0,
     0,0X61,0X62,0X63,0X64,0X65,0X66,0X67,0X68,0X69,0X6A,0X6B,0X6C,0X6D,0X6E,0X6F,
-    0X70,0X71,0X72,0X73,0X74,0X75,0X76,0X77,0X78,0X79,0X7A,0,0,0,0,0,
+    0X70,0X71,0X72,0X73,0X74,0X75,0X76,0X77,0X78,0X79,0X7A,0,0,0,0,0X5F,
     0,0X61,0X62,0X63,0X64,0X65,0X66,0X67,0X68,0X69,0X6A,0X6B,0X6C,0X6D,0X6E,0X6F,
     0X70,0X71,0X72,0X73,0X74,0X75,0X76,0X77,0X78,0X79,0X7A,0,0,0,0,0,
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -403,7 +403,7 @@ unsigned char InvalidDnsNameTable[256] = {
     1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,
     0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,
     1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-    0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,
+    0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,
     1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
     0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,
     1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
@@ -601,7 +601,7 @@ fill_all_records_in_msg(struct hlpc * h, struct hlpf * hf, int idx)
         h[idx].ref = -1;
         h[idx].level = get_level(h[idx].name);
         h[idx].mt = 0;
-        h[idx].len = hf->len;
+//         h[idx].len = hf->len;
         tmp = fill_name_in_msg(h, to, idx);
         fm->len = htons(tmp - to);
         to = tmp;
@@ -616,7 +616,7 @@ fill_all_records_in_msg(struct hlpc * h, struct hlpf * hf, int idx)
         h[idx].ref = -1;
         h[idx].level = get_level(h[idx].name);
         h[idx].mt = 0;
-        h[idx].len = hf->len;
+//         h[idx].len = hf->len;
         tmp = fill_name_in_msg(h, to, idx);
         fm->len = htons(tmp - to + sizeof(uint16_t));
         to = tmp;
@@ -638,7 +638,7 @@ fill_all_records_in_msg(struct hlpc * h, struct hlpf * hf, int idx)
         h[idx].ref = -1;
         h[idx].level = get_level(h[idx].name);
         h[idx].mt = 0;
-        h[idx].len = hf->len;
+//         h[idx].len = hf->len;
         tmp = fill_name_in_msg(h, to, idx);
         fm->len = htons(tmp - to + sizeof(uint16_t) * 3);
         to = tmp;
@@ -770,6 +770,7 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
         return to;
         break;
     case CNAME:                // cname must has 1 record
+        h[n].len = mv->len;
         to = fill_name_in_msg(h, to, n);
         hf.from = from;
         hf.to = to;
@@ -778,47 +779,51 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
         break;
     case NS:
         for (i = 0; i < num; i++) {
+            h[n].len = strlen((const char *)from) + 1;
             to = fill_name_in_msg(h, to, n);
             hf.from = from;
             hf.to = to;
-            hf.len = strlen((const char *)from) + 1;
+//             hf.len = strlen((const char *)from) + 1;
             to = fill_all_records_in_msg(h, &hf, n);
-            from += hf.len;//strlen((const char *)from) + 1;
+            from += h[n].len;//strlen((const char *)from) + 1;
         }
         return to;
         break;
     case MX:
         for (i = 0; i < num; i++) {
+            h[n].len = strlen((const char *)(from + sizeof(uint16_t))) + 1;
             to = fill_name_in_msg(h, to, n);
             hf.from = from;
             hf.to = to;
-            hf.len = strlen((const char *)from) + 1;
+//             hf.len = strlen((const char *)from) + 1;
             to = fill_all_records_in_msg(h, &hf, n + i);
             from += sizeof(uint16_t);   //jump ref
-            from += hf.len;//strlen((const char *)from) + 1;   //jump name and tail 0
+            from += h[n].len;//strlen((const char *)from) + 1;   //jump name and tail 0
         }
         return to;
         break;
     case TXT:
         for (i = 0; i < num; i++) {
+            txtlen = *(uint16_t *) from;
+            h[n].len = txtlen;
             to = fill_name_in_msg(h, to, n);
             hf.from = from;
             hf.to = to;
             to = fill_all_records_in_msg(h, &hf, n);
-            txtlen = *(uint16_t *) from;
             from = from + txtlen + sizeof(uint16_t);
         }
         return to;
         break;
     case SRV:
         for (i = 0; i < num; i++) {
+            h[n].len = strlen((const char *)(from + sizeof(uint16_t) * 3)) + 1;
             to = fill_name_in_msg(h, to, n);
             hf.from = from;
             hf.to = to;
-            hf.len = strlen((const char *)from) + 1;
+//             hf.len = strlen((const char *)from) + 1;
             to = fill_all_records_in_msg(h, &hf, n);
             from += sizeof(uint16_t) * 3;       //pri wei port
-            from += hf.len;//strlen((const char *)from) + 1;   //target
+            from += h[n].len;//strlen((const char *)from) + 1;   //target
         }
         return to;
         break;
@@ -1364,7 +1369,7 @@ find_addr(struct htable *fwd, struct htable *ht, mbuf_type *mbuf,
                 ori_flag = 1;
             {
                 xlen = strlen((const char *)itor) + 1;    //ns len
-                if (xlen > (QBUFFER_SIZE - 1))
+                if (xlen > (QBUFFER_SIZE - 1) || itor[0] == 0 || itor[0] > xlen)
                     return -1;
                 memcpy(mbuf->qbuffer, itor, xlen);
                 mbuf->qbuffer_hash = 0;

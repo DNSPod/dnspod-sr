@@ -33,6 +33,10 @@
 #include "author.h"
 #include "memory.h"
 
+#ifndef CPU_SET_S
+#define CPU_SET_S(cpu, setsize, cpusetp)   CPU_SET(cpu, cpusetp)
+#endif
+
 #define SENTINEL_EVENT (1000)
 
 struct event_data;

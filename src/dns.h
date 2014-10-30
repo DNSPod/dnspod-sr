@@ -203,7 +203,7 @@ struct hlpc {
 
 struct hlpf {
     ushort type;
-    ushort len;
+//     ushort len;
     uint ttl;
     uchar *hdr;
     uchar *from;
