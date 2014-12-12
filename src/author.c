@@ -179,7 +179,10 @@ write_back_to_client(mbuf_type *mbuf, uchar * fr, int vlen)
     hlp[0].ref = -1;
     hlp[0].mt = 0;
     hlp[0].len = mbuf->dlen;
-    jump = sizeof(dnsheader) + mbuf->dlen + sizeof(qdns);
+    if (mbuf->dlen == 2) // root
+        jump = sizeof(dnsheader) + 1 + sizeof(qdns);
+    else
+        jump = sizeof(dnsheader) + mbuf->dlen + sizeof(qdns);
     to = to + jump;
     while (vlen > 1)            //vlen include type.mvalue.data.
     {
@@ -196,7 +199,7 @@ write_back_to_client(mbuf_type *mbuf, uchar * fr, int vlen)
         from = from + mv->len + 1 + sizeof(struct mvalue);      // type.mv.len.
     }
     sh.itor = msg;
-    sh.dlen = mbuf->dlen;
+    sh.dlen = (mbuf->dlen == 2) ? 1: (mbuf->dlen);
     sh.od = mbuf->td;
     sh.id = mbuf->id;
     sh.type = mbuf->qtype;
@@ -636,7 +639,7 @@ launch_new_query(struct author *author/*, int idrowback*/)
         {
             if (ret > 0)
             {
-                if (mbuf->qtimes > MAX_TRY_TIMES || (msnow - mbuf->stime) > 5000)
+                if (mbuf->qtimes > MAX_TRY_TIMES/* || (msnow - mbuf->stime) > 5000*/)
                 {
                     release_qoutinfo(author, mbuf, GET_AID(i, typeoff));
                 }

@@ -102,7 +102,10 @@ passer_dns_data(mbuf_type *mbuf)
     }
     mbuf->dlen = dlen;
     tail = mbuf->origindomain = buf + sizeof(dnsheader);
-    tail += dlen;
+    if (dlen == 2) // root
+        tail += 1;
+    else
+        tail += dlen;
     mbuf->qtype = ntohs(*(ushort *) tail);
     if (check_support_type(mbuf->qtype) == 0)
         mbuf->err = 0;
@@ -160,6 +163,8 @@ get_domain_from_msg(uchar * itor, uchar * hdr, uchar * to, int *tmplen)
                     dlen += *tmplen;
             }
             hasptr = 1;
+            offset = htons((ushort) * (ushort *) itor);
+            continue;
         }
         to[0] = itor[0];
         *tmplen += 1;            //len
@@ -434,10 +439,16 @@ check_dns_name(uchar * domain, packet_type *lowerdomain)
     *dst = len;
     *hash = (((*hash << 5) + *hash) + *dst++);
     domain++;
+    if (len == 0) // root
+    {
+        *dst = '\0';
+        tlen = 2;
+        return tlen;
+    }
     while (len != 0) {
         if (len > 63)
             return -1;
-        for (i = 0; i < len; i++)       //num a-z A-Z -,and to lower
+        for (i = 0; i < len; i++)       //num a-z A-Z - _,and to lower
         {
             *dst = ISVALIDDNSCHAR(domain[i]);
             if (!(*dst))
@@ -601,7 +612,7 @@ fill_all_records_in_msg(struct hlpc * h, struct hlpf * hf, int idx)
         h[idx].ref = -1;
         h[idx].level = get_level(h[idx].name);
         h[idx].mt = 0;
-//         h[idx].len = hf->len;
+        h[idx].len = hf->len;
         tmp = fill_name_in_msg(h, to, idx);
         fm->len = htons(tmp - to);
         to = tmp;
@@ -616,7 +627,7 @@ fill_all_records_in_msg(struct hlpc * h, struct hlpf * hf, int idx)
         h[idx].ref = -1;
         h[idx].level = get_level(h[idx].name);
         h[idx].mt = 0;
-//         h[idx].len = hf->len;
+        h[idx].len = hf->len;
         tmp = fill_name_in_msg(h, to, idx);
         fm->len = htons(tmp - to + sizeof(uint16_t));
         to = tmp;
@@ -638,7 +649,7 @@ fill_all_records_in_msg(struct hlpc * h, struct hlpf * hf, int idx)
         h[idx].ref = -1;
         h[idx].level = get_level(h[idx].name);
         h[idx].mt = 0;
-//         h[idx].len = hf->len;
+        h[idx].len = hf->len;
         tmp = fill_name_in_msg(h, to, idx);
         fm->len = htons(tmp - to + sizeof(uint16_t) * 3);
         to = tmp;
@@ -770,35 +781,34 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
         return to;
         break;
     case CNAME:                // cname must has 1 record
-        h[n].len = mv->len;
         to = fill_name_in_msg(h, to, n);
         hf.from = from;
         hf.to = to;
+        hf.len = strlen((const char *)from) + 1;
         to = fill_all_records_in_msg(h, &hf, n);
         return to;
         break;
     case NS:
         for (i = 0; i < num; i++) {
-            h[n].len = strlen((const char *)from) + 1;
+//             h[n].len = strlen((const char *)from) + 1;
             to = fill_name_in_msg(h, to, n);
             hf.from = from;
             hf.to = to;
-//             hf.len = strlen((const char *)from) + 1;
+            hf.len = strlen((const char *)from) + 1;
             to = fill_all_records_in_msg(h, &hf, n);
-            from += h[n].len;//strlen((const char *)from) + 1;
+            from += hf.len;//strlen((const char *)from) + 1;
         }
         return to;
         break;
     case MX:
         for (i = 0; i < num; i++) {
-            h[n].len = strlen((const char *)(from + sizeof(uint16_t))) + 1;
             to = fill_name_in_msg(h, to, n);
             hf.from = from;
             hf.to = to;
-//             hf.len = strlen((const char *)from) + 1;
+            hf.len = strlen((const char *)(from + sizeof(uint16_t))) + 1;
             to = fill_all_records_in_msg(h, &hf, n + i);
             from += sizeof(uint16_t);   //jump ref
-            from += h[n].len;//strlen((const char *)from) + 1;   //jump name and tail 0
+            from += hf.len;//strlen((const char *)from) + 1;   //jump name and tail 0
         }
         return to;
         break;
@@ -816,14 +826,13 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
         break;
     case SRV:
         for (i = 0; i < num; i++) {
-            h[n].len = strlen((const char *)(from + sizeof(uint16_t) * 3)) + 1;
             to = fill_name_in_msg(h, to, n);
             hf.from = from;
             hf.to = to;
-//             hf.len = strlen((const char *)from) + 1;
+            hf.len = strlen((const char *)(from + sizeof(uint16_t) * 3))  + 1;
             to = fill_all_records_in_msg(h, &hf, n);
             from += sizeof(uint16_t) * 3;       //pri wei port
-            from += h[n].len;//strlen((const char *)from) + 1;   //target
+            from += hf.len;//strlen((const char *)from) + 1;   //target
         }
         return to;
         break;
@@ -1073,6 +1082,7 @@ pre_find(mbuf_type *mbuf, struct htable *fwd, struct htable *ht,
     } else {
         td_len = mbuf->dlen;
         mbuf->qing = mbuf->td;
+        mbuf->qlen = mbuf->dlen;
         td = mbuf->td;
         mbuf->qhash = &(mbuf->lowerdomain.hash[0]);
     }
@@ -1293,6 +1303,7 @@ find_addr(struct htable *fwd, struct htable *ht, mbuf_type *mbuf,
     uchar *td, *buffer = mbuf->tempbuffer, *itor = NULL, *glue = NULL;
     int td_len, diff_len;
     int ori_flag = 0;
+    int root_flag = 0;
     hashval_t thash, *hash;
     int label_count = 0;
     
@@ -1333,20 +1344,43 @@ find_addr(struct htable *fwd, struct htable *ht, mbuf_type *mbuf,
                 diff_len = itor[0] + 1;
                 itor = itor + diff_len;  //parent, assert itor[1] < 64
                 if (itor[0] == 0)   //root
-                    return -1;
-                
-                td_len -= diff_len;
+                {
+                    if (root_flag == 0)
+                    {
+                        itor[1] = '\0';
+                        root_flag = 1;
+                        td_len = 2;
+                    }
+                    else
+                        return -1;
+                }
+                else
+                {
+                    td_len -= diff_len;
+                }
                 thash = 0;
                 hash = &thash;
             }
             else
             {
                 label_count++;
-                if (label_count >= mbuf->lowerdomain.label_count) // root
+                if (label_count > mbuf->lowerdomain.label_count)
                     return -1;
-                itor = mbuf->lowerdomain.label[label_count];
-                td_len = mbuf->lowerdomain.label_len[label_count];
-                hash = &(mbuf->lowerdomain.hash[label_count]);
+                
+                if (label_count == mbuf->lowerdomain.label_count) // root
+                {
+                    itor = mbuf->lowerdomain.label[label_count - 1] + mbuf->lowerdomain.label_len[label_count - 1];
+                    itor[1] = '\0';
+                    td_len = 2;
+                    thash = 0;
+                    hash = &thash;
+                }
+                else
+                {
+                    itor = mbuf->lowerdomain.label[label_count];
+                    td_len = mbuf->lowerdomain.label_len[label_count];
+                    hash = &(mbuf->lowerdomain.hash[label_count]);
+                }
             }
         }
         mv = (struct mvalue *) buffer;  //ns record in buffer

@@ -88,7 +88,7 @@ typedef int (delvalfunc) (void *);
 #define MULTI_HASH (10)
 extern const uint MAX_ELE_NUM;
 //MAX_RECORD_SIZE bytes at most
-#define MAX_RECORD_SIZE (1000)
+#define MAX_RECORD_SIZE (4096)
 
 #define QLIST_MAX_ELE_NUM (200000)
 #define QLIST_TABLE_SIZE (4095)

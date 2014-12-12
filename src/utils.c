@@ -625,7 +625,7 @@ uint_hash_function(void *ptr)
 hashval_t
 nocase_char_hash_function(void *argv, int klen)
 {
-    int len = klen;
+    int len = (klen == 2) ? 1 : klen;
     uchar *buf = argv;
     hashval_t hash = 5381;
 //     to_lowercase(buf, len);
