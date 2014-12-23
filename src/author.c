@@ -273,6 +273,17 @@ passer_related_data(struct sockinfo *si, mbuf_type *mbuf,
     }
     n = ntohs(hdr->arcount);
     if (n > 0) {
+        // ignore OPT(EDNS0 option)
+        if ((tail + OPT_LEN + OPT_RDATA) <= (buf + datalen))
+        {
+            uint8_t opt_owner = *(uint8_t *)tail;
+            uint16_t opt_type = *(uint16_t *)(tail + 1);
+            if (opt_owner == 0 && DNS_GET16(opt_type) == OPT)
+            {
+                return stype;
+            }
+        }
+        
         hlp.section = AR_SECTION;
         tail = process_rdata(&hlp, tail, n);
         if (tail == NULL)
