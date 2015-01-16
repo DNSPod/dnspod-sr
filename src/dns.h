@@ -107,7 +107,7 @@ enum {
 #define GET_QR(flag) ((flag & 0x8000) / 0x8000)
 #define SET_QR_R(flag) (flag | 0x8000)
 #define SET_QR_Q(flag) (flag & 0x7fff)
-#define GET_OPCODE(flag) ((flag & 7800) >> 11)
+#define GET_OPCODE(flag) ((flag & 0x7800) >> 11)
 //we always set opcode 0 at current veserion.
 #define QUERY (0)
 #define IQUERY (1)
