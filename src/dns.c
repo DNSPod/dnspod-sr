@@ -704,7 +704,7 @@ fill_name_in_msg(struct hlpc * h, uchar * to, int idx)
     for (i = idx - 1; i >= 0; i--) {
         m = reverse_compare(h[i].name, h[i].len, h[idx].name,
                             len);
-        if (m > h[i].mt) {
+        if (m > h[idx].mt) {
             h[idx].mt = m;      //max match
             h[idx].ref = i;
         }
