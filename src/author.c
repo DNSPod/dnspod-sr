@@ -188,14 +188,12 @@ write_back_to_client(mbuf_type *mbuf, uchar * fr, int vlen)
     {
         type = from[0];
         mv = (struct mvalue *)(from + 1);
-        to = fill_rrset_in_msg(hlp, from, to, main_val, msg);
+        to = fill_rrset_in_msg(hlp, from, to, &main_val, msg);
         if (to == NULL)
             return -1;
 //         *to = 0;
         vlen = vlen - 1 - mv->len - sizeof(struct mvalue);
         sh.an += mv->num;
-        if (type == CNAME)      //cname must be 1
-            main_val++;             //no all rdata is the cname's
         from = from + mv->len + 1 + sizeof(struct mvalue);      // type.mv.len.
     }
     sh.itor = msg;
