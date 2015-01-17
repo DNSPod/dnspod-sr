@@ -905,9 +905,6 @@ fill_rrset_in_buffer(uchar * buffer, uchar * label, uchar * hdr, int lth,
         memcpy(buffer, label, 4);
         break;
     case NS:
-        get_domain_from_msg(label, hdr, buffer, &mlen);
-        to_lowercase(buffer, mlen);
-        break;
     case CNAME:
         get_domain_from_msg(label, hdr, buffer, &mlen);
         to_lowercase(buffer, mlen);
