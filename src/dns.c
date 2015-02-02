@@ -580,12 +580,13 @@ get_level(uchar * itor)
 
 
 uchar *
-fill_all_records_in_msg(struct hlpc * h, struct hlpf * hf, int idx)
+fill_all_records_in_msg(struct hlpc * h, struct hlpf * hf, int *pidx)
 {
     int step = 0;
     uint16_t txtlen;
     uchar *tmp = NULL, *to = hf->to, *from = hf->from;
     struct fillmsg *fm = (struct fillmsg *) (hf->to);
+    int idx = *pidx;
     fm->type = htons(hf->type);
     fm->dclass = htons(CLASS_IN);
     fm->ttl = htonl(hf->ttl - global_now);
@@ -607,6 +608,7 @@ fill_all_records_in_msg(struct hlpc * h, struct hlpf * hf, int idx)
     case CNAME:
     case NS:
         idx++;
+        *pidx = idx;
         h[idx].name = from;
         h[idx].off = to - hf->hdr;
         h[idx].ref = -1;
@@ -622,6 +624,7 @@ fill_all_records_in_msg(struct hlpc * h, struct hlpf * hf, int idx)
         from += sizeof(uint16_t);       //2
         to += sizeof(uint16_t);
         idx++;
+        *pidx = idx;
         h[idx].name = from;
         h[idx].off = to - hf->hdr;
         h[idx].ref = -1;
@@ -644,6 +647,7 @@ fill_all_records_in_msg(struct hlpc * h, struct hlpf * hf, int idx)
         from += sizeof(uint16_t) * 3;
         to = to + sizeof(uint16_t) * 3;
         idx++;
+        *pidx = idx;
         h[idx].name = from;
         h[idx].off = to - hf->hdr;
         h[idx].ref = -1;
@@ -668,11 +672,11 @@ reverse_compare(uchar * from, int flen, uchar * to, int tolen)
 {
     uchar fi, ti, rec = 0;
     int match = 0;
-    flen -= 2;                  //1 for strlen + 1, 1 for array in c
-    tolen -= 2;
-    fi = from[flen];
-    ti = to[tolen];
-    while (flen && tolen) {
+    flen -= 1;                  //1 for strlen + 1
+    tolen -= 1;
+    do {
+        fi = from[--flen];
+        ti = to[--tolen];
         if (fi != ti)
             break;
         rec++;
@@ -681,9 +685,7 @@ reverse_compare(uchar * from, int flen, uchar * to, int tolen)
             match++;
             rec = 0;
         }
-        fi = from[--flen];
-        ti = to[--tolen];
-    }
+    } while (flen && tolen);
     return match;
 }
 
@@ -739,7 +741,7 @@ fill_name_in_msg(struct hlpc * h, uchar * to, int idx)
 
 //jump from author.c
 uchar *
-fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
+fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int *pn,
                   uchar * hdr)
 {
     uchar type;
@@ -748,6 +750,7 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
     struct hlpf hf;
     int num = 0;
     struct mvalue *mv = NULL;
+    int n = *pn;
     type = from[0];
     from++;                     //type
     mv = (struct mvalue *) from;
@@ -763,6 +766,20 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
         step = 4;
     if (type == AAAA)
         step = 16;
+    /**
+     * A & AAA use previous domain name (question name or cname name).
+     * We duplicate here to make it possible to refer previous one.
+     */
+    if (type == A || type == AAAA) {
+        n++;
+        *pn = n;
+        h[n].name = h[n - 1].name;
+        h[n].off = h[n - 1].off;
+        h[n].level = h[n - 1].level;
+        h[n].len = h[n - 1].len;
+        h[n].ref = -1;
+        h[n].mt = 0;
+    }
     switch (type)               //7
     {
     case A:
@@ -775,7 +792,7 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
             //then we get ttl's position
             //plus hdr we get it's offset
             //only for A record
-            to = fill_all_records_in_msg(h, &hf, n);
+            to = fill_all_records_in_msg(h, &hf, pn);
             from += step;
         }
         return to;
@@ -785,7 +802,7 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
         hf.from = from;
         hf.to = to;
         hf.len = strlen((const char *)from) + 1;
-        to = fill_all_records_in_msg(h, &hf, n);
+        to = fill_all_records_in_msg(h, &hf, pn);
         return to;
         break;
     case NS:
@@ -795,7 +812,7 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
             hf.from = from;
             hf.to = to;
             hf.len = strlen((const char *)from) + 1;
-            to = fill_all_records_in_msg(h, &hf, n);
+            to = fill_all_records_in_msg(h, &hf, pn);
             from += hf.len;//strlen((const char *)from) + 1;
         }
         return to;
@@ -806,7 +823,7 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
             hf.from = from;
             hf.to = to;
             hf.len = strlen((const char *)(from + sizeof(uint16_t))) + 1;
-            to = fill_all_records_in_msg(h, &hf, n + i);
+            to = fill_all_records_in_msg(h, &hf, pn);
             from += sizeof(uint16_t);   //jump ref
             from += hf.len;//strlen((const char *)from) + 1;   //jump name and tail 0
         }
@@ -819,7 +836,7 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
             to = fill_name_in_msg(h, to, n);
             hf.from = from;
             hf.to = to;
-            to = fill_all_records_in_msg(h, &hf, n);
+            to = fill_all_records_in_msg(h, &hf, pn);
             from = from + txtlen + sizeof(uint16_t);
         }
         return to;
@@ -830,7 +847,7 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int n,
             hf.from = from;
             hf.to = to;
             hf.len = strlen((const char *)(from + sizeof(uint16_t) * 3))  + 1;
-            to = fill_all_records_in_msg(h, &hf, n);
+            to = fill_all_records_in_msg(h, &hf, pn);
             from += sizeof(uint16_t) * 3;       //pri wei port
             from += hf.len;//strlen((const char *)from) + 1;   //target
         }
@@ -905,9 +922,6 @@ fill_rrset_in_buffer(uchar * buffer, uchar * label, uchar * hdr, int lth,
         memcpy(buffer, label, 4);
         break;
     case NS:
-        get_domain_from_msg(label, hdr, buffer, &mlen);
-        to_lowercase(buffer, mlen);
-        break;
     case CNAME:
         get_domain_from_msg(label, hdr, buffer, &mlen);
         to_lowercase(buffer, mlen);

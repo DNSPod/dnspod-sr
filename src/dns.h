@@ -323,7 +323,7 @@ int find_addr(struct htable *fwd, struct htable *, mbuf_type *mbuf,
 
 
 uchar *fill_header_in_msg(struct setheader *);
-uchar *fill_rrset_in_msg(struct hlpc *, uchar *, uchar *, int, uchar *);
+uchar *fill_rrset_in_msg(struct hlpc *, uchar *, uchar *, int *, uchar *);
 
 uint dname_hash(void *);
 
