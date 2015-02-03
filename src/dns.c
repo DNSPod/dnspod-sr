@@ -307,7 +307,7 @@ process_rdata(struct hlpp * hlp, uchar * label, int n)
             ttl = MIN_TTL;
         ttl = random_ttl(ttl + n);
         label += 10;            // 2type,2class,4ttl,2lth
-        if (tmptype == SOA || tmptype == CNAME)
+        if ((tmptype == SOA || tmptype == CNAME) && i == (n - 1))
             *stype = tmptype;
         if (type == 0)          //first time
             type = tmptype;
@@ -766,20 +766,6 @@ fill_rrset_in_msg(struct hlpc * h, uchar * from, uchar * to, int *pn,
         step = 4;
     if (type == AAAA)
         step = 16;
-    /**
-     * A & AAA use previous domain name (question name or cname name).
-     * We duplicate here to make it possible to refer previous one.
-     */
-    if (type == A || type == AAAA) {
-        n++;
-        *pn = n;
-        h[n].name = h[n - 1].name;
-        h[n].off = h[n - 1].off;
-        h[n].level = h[n - 1].level;
-        h[n].len = h[n - 1].len;
-        h[n].ref = -1;
-        h[n].mt = 0;
-    }
     switch (type)               //7
     {
     case A:
