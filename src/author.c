@@ -188,15 +188,28 @@ write_back_to_client(mbuf_type *mbuf, uchar * fr, int vlen)
     {
         type = from[0];
         mv = (struct mvalue *)(from + 1);
-        to = fill_rrset_in_msg(hlp, from, to, main_val, msg);
+        to = fill_rrset_in_msg(hlp, from, to, &main_val, msg);
         if (to == NULL)
             return -1;
 //         *to = 0;
         vlen = vlen - 1 - mv->len - sizeof(struct mvalue);
         sh.an += mv->num;
-        if (type == CNAME)      //cname must be 1
-            main_val++;             //no all rdata is the cname's
         from = from + mv->len + 1 + sizeof(struct mvalue);      // type.mv.len.
+        /**
+        * if previous record is CNAME(query type can't be ANY, that we don't support now),
+        * next A & AAAA & CNAME use previous domain name (cname name).
+        * We duplicate here to make it possible to refer previous one.
+        */
+        if (type == CNAME && vlen > 1 /*&& mbuf->qtype != ANY*/ && (from[0] == A || from[0] == AAAA || from[0] == CNAME))
+        {
+            main_val++;
+            hlp[main_val].name = hlp[main_val - 1].name;
+            hlp[main_val].off = hlp[main_val - 1].off;
+            hlp[main_val].level = hlp[main_val - 1].level;
+            hlp[main_val].len = hlp[main_val - 1].len;
+            hlp[main_val].ref = -1;
+            hlp[main_val].mt = 0;
+        }
     }
     sh.itor = msg;
     sh.dlen = (mbuf->dlen == 2) ? 1: (mbuf->dlen);
