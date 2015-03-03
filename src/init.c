@@ -301,7 +301,7 @@ sanity_test(int exi)
 int
 print_basic_debug(void)
 {
-    printf("[DBG:] dnspod-sr is successful running now!!\n");
+    printf("[DBG:] dnspod-sr is successfully running now!!\n");
     printf("[DBG:] max_ele_size is %u - 1808\n", MAX_ELE_NUM);
     printf("[DBG:] server may contain %u useful records\n",
             (MAX_ELE_NUM - 1808) / 3);
