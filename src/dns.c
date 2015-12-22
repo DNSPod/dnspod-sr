@@ -1483,7 +1483,7 @@ dbg_print_domain(uchar * hdr, uchar * itor)
         printf("root\n");
         return 0;
     }
-    offset = htons((ushort) * (ushort *) itor);
+    offset = ntohs((ushort) * (ushort *) itor);
     if (IS_PTR(offset))
         itor = hdr + GET_OFFSET(offset);
     while (len != 0 && debug--) {
@@ -1494,7 +1494,7 @@ dbg_print_domain(uchar * hdr, uchar * itor)
             itor = dbg_print_label(itor, 1);
         printf(".");
         len = itor[0];
-        offset = htons((ushort) * (ushort *) itor);
+        offset = ntohs((ushort) * (ushort *) itor);
     }
     printf("\n");
     if (tmp == NULL)
