@@ -40,7 +40,7 @@
 #include <netinet/in.h>
 #include <assert.h>
 
-#define MEMPOOL_SIZE    (262144)
+#define MEMPOOL_SIZE    (65536) //(262144)
 
 #define RING_SP_ENQ 0x0001
 #define RING_SC_DEQ 0x0002

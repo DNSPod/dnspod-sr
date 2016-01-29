@@ -152,7 +152,7 @@ get_domain_from_msg(uchar * itor, uchar * hdr, uchar * to, int *tmplen)
     len = itor[0];
     int dlen = 0;
     int hasptr = 0, infinite = 20;
-    offset = htons((ushort) * (ushort *) itor);
+    offset = ntohs((ushort) * (ushort *) itor);
     *tmplen = 0;
     while ((len != 0) && (infinite--)) {
         if (IS_PTR(offset)) {
@@ -163,7 +163,7 @@ get_domain_from_msg(uchar * itor, uchar * hdr, uchar * to, int *tmplen)
                     dlen += *tmplen;
             }
             hasptr = 1;
-            offset = htons((ushort) * (ushort *) itor);
+            offset = ntohs((ushort) * (ushort *) itor);
             continue;
         }
         to[0] = itor[0];
@@ -176,7 +176,7 @@ get_domain_from_msg(uchar * itor, uchar * hdr, uchar * to, int *tmplen)
         to += itor[0];
         itor = itor + itor[0] + 1;
         len = itor[0];
-        offset = htons((ushort) * (ushort *) itor);
+        offset = ntohs((ushort) * (ushort *) itor);
     }
     if (infinite <= 0)          //loops error
         return -1;
@@ -291,7 +291,7 @@ process_rdata(struct hlpp * hlp, uchar * label, int n)
     tx = global_now;            ///
     dm[0] = dm[1] = 0;
     //if(hlp->section != AN_SECTION) //see header comments.
-    rbt = NULL; 
+//     rbt = NULL; 
     for (i = 0; i < n; i++) {
         dlen = get_domain_from_msg(label, hdr, tmpdomain, &tmplen);
         if (dm[0] == 0 && dm[1] == 0)   //first time
@@ -522,11 +522,11 @@ insert_kv_mem(struct rbtree *rbt, struct htable *ds, uchar * k, int klen,
     memcpy(val, v, vlen);
     mv = (struct mvalue *) v;
     ret = htable_insert(ds + idx, k, klen, type, val, 1, &tmp, hash);    //mem, replace
-    if (ret == 2) {
+    if (ret >= HTABLE_INSERT_RET_NEVER_EXPIRE) {
         free(val);
     }
     if (rbt) {
-        if (ret != 0) {
+        if (ret == HTABLE_INSERT_RET_REPLACE) {
             pthread_spin_lock(&rbt->lock);
             tn.dlen = klen;
             //tmp get old data
@@ -555,7 +555,10 @@ insert_kv_mem(struct rbtree *rbt, struct htable *ds, uchar * k, int klen,
     }
     //data exists in htable, delete it in ttl tree, then insert
     pthread_spin_lock(&rbt->lock);
-    ret = insert_into_ttltree(rbt, k, klen, type, mv->ttl, lowerdomain); //ttl expired tree
+    if (type != NS && ret == HTABLE_INSERT_RET_REPLACE)
+        ret = insert_into_ttltree(rbt, k, klen, type, mv->ttl, lowerdomain); //ttl expired tree
+    else
+        ret = insert_into_ttltree(rbt, k, klen, type, tmp.ttl, lowerdomain); //ttl expired tree
     pthread_spin_unlock(&rbt->lock);
     return 0;
 }
@@ -1276,6 +1279,7 @@ fill_extra_addr(uchar * ip)
     mv->ttl = 0;
     mv->hits = 0;
     mv->len = 0;
+    mv->seg = 0;
     for (i = 0; i < n; i++) {
         if (make_bin_from_str(ip, extra[i]) == 0) {
             mv->num++;
@@ -1288,6 +1292,7 @@ fill_extra_addr(uchar * ip)
     mv->ttl = 0;
     mv->hits = 0;
     mv->len = 0;
+    mv->seg = 0;
     return 0;
 }
 

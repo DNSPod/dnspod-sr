@@ -625,6 +625,7 @@ cb_read_auth(struct epoll_event *ev, struct sockinfo *si)
     mbuf_type *mbuf = mbuf_alloc();
     if (NULL == mbuf)
         return -1;
+    memset(mbuf, 0, sizeof(mbuf_type));
     mbuf->fd = ev->data.fd;
     mbuf->buf = si->buf;
     mbuf->buflen = BIG_MEM_STEP;
@@ -658,6 +659,7 @@ launch_new_query(struct author *author/*, int idrowback*/)
     for (i = start; i < end; i++) {
         slotoff = 0;
         typeoff = 0;
+        mbuf = NULL;
         ret = htable_find_list_io(author->s->qlist, i, slotoff, &typeoff, (uchar **)&mbuf);
         while (ret >= 0)
         {
@@ -790,6 +792,7 @@ handle_back_event(struct author *author)
         if (ret <= 0)
             break;
         for (i = 0; i < ret; i++) {
+            memset(&si, 0, sizeof(struct sockinfo));
             si.buf = buf;
             if (e[i].data.fd == bf) {
                 si.socktype = UDP;
@@ -814,7 +817,7 @@ handle_back_event(struct author *author)
                         author->eptcpfds[e[i].data.fd].ret = 0;
                         close(e[i].data.fd);
                         ev.data.fd = e[i].data.fd;
-                        mbuf_free(si.mbuf);
+//                         mbuf_free(si.mbuf);
                         epoll_ctl(epfd, EPOLL_CTL_DEL, ev.data.fd, &ev);
                     } else {
                         rx = passer_auth_data(author, buf, &si);
@@ -922,6 +925,7 @@ check_ttl_expire(struct author *author)
         tn = delete_node(rbt, pn);
         pthread_spin_unlock(&rbt->lock);
         if (tn != NULL) {
+            memset(mbuf, 0, sizeof(mbuf_type));
             mbuf->qname = tn->type;     //type
             mbuf->qtype = tn->type;
             mbuf->dlen = tn->dlen;
@@ -939,7 +943,7 @@ check_ttl_expire(struct author *author)
             mbuf->fd = -1;
             init_qoutinfo(mbuf);
             ret = htable_insert_list(author->s->qlist, tn->data, tn->dlen, tn->type, (uchar *)mbuf, 0, NULL, tn->hash); //not replace
-            if (0 == ret)
+            if (HTABLE_INSERT_RET_NORMAL == ret)
             {
                 mbuf = mbuf_alloc();
                 if (NULL == mbuf)
@@ -1103,7 +1107,7 @@ lock_and_add_to_quizz(mbuf_type *mbuf, struct fetcher *f)
     init_qoutinfo(mbuf);
 
     ret = htable_insert_list(f->s->qlist, mbuf->lowerdomain.domain, mbuf->dlen, mbuf->qtype, (uchar *)mbuf, 0, NULL, &(mbuf->lowerdomain.hash[0]));   //has same one, qeurying
-    if (ret != 0)
+    if (ret != HTABLE_INSERT_RET_NORMAL)
     {
         return -1;
     }

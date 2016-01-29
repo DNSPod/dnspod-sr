@@ -63,6 +63,13 @@ enum {
 };
 
 
+enum htable_insert_ret{
+    HTABLE_INSERT_RET_NORMAL = 0,
+    HTABLE_INSERT_RET_REPLACE,
+    HTABLE_INSERT_RET_NEVER_EXPIRE,
+    HTABLE_INSERT_RET_NO_REPLACE,
+};
+
 //used by memory hash and disk db
 struct mvalue {
     uint16_t len;

@@ -237,7 +237,7 @@ create_transfer_point(uchar * name, struct htable *fwd, int n)
     v = malloc(mv->len + sizeof(struct mvalue));
     memcpy(v, vbuffer, mv->len + sizeof(struct mvalue));
     ret = htable_insert(fwd, name, dlen, A, v, 0, NULL, &hash);
-    assert(ret >= 0);
+    assert(ret == HTABLE_INSERT_RET_NORMAL);
     return 0;
 }
 

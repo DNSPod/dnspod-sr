@@ -132,6 +132,7 @@ cb_get_tcp_msg(struct event_data *data, void *v, int idx)
     if (NULL == mbuf) {
         return 0;
     }
+    memset(mbuf, 0, sizeof(mbuf_type));
     
     mc = f[idx].mc;
     pthread_spin_lock(&mc->lock);
@@ -202,6 +203,7 @@ cb_get_udp_msg(struct event_data *data, void *v, int idx)
         if (NULL == mbuf) {
             return 0;
         }
+        memset(mbuf, 0, sizeof(mbuf_type));
         mc = f[idx].mc;
         pthread_spin_lock(&mc->lock);
         if ((mc->tail + 8 > mc->head && mc->tail < mc->head) || 

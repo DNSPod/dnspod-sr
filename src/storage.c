@@ -699,25 +699,33 @@ int append_value_to_he(struct hentry *he, uchar *val, int type, int replace,
                 *mv = *(struct mvalue *) (*oval);
             if ((mv != NULL) && (mv->ttl != (MAX_TTL + 1)))
             {
+                /*
+                 * 如果替换的为NS类型，则TTL使用原有NS记录的TTL
+                 * 否则授权与根返回的NS不一致时，会无法刷新NS
+                 */
+                if (NS == type)
+                {
+                    ((struct mvalue *)val)->ttl = mv->ttl;
+                }
                 free(*oval);
                 *oval = val;
-                ret = 1;
+                ret = HTABLE_INSERT_RET_REPLACE;
             }
             else
             {
-                ret = 2;
+                ret = HTABLE_INSERT_RET_NEVER_EXPIRE;
             }
         }
         else
         {
-            ret = -1;
+            ret = HTABLE_INSERT_RET_NO_REPLACE;
         }
     }
     else
     {
         he->count++;
         *oval = val;
-        ret = 0;
+        ret = HTABLE_INSERT_RET_NORMAL;
     }
     return ret;
 }
@@ -781,7 +789,7 @@ htable_insert(struct htable *ht, uchar * key, int klen, int type, uchar * val, i
     pthread_spin_lock(&ht->lock);
     ht->now++;
     pthread_spin_unlock(&ht->lock);
-    return 0;
+    return HTABLE_INSERT_RET_NORMAL;
 }
 
 int

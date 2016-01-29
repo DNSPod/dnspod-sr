@@ -410,14 +410,14 @@ main(int argc, char **argv)
     // add default dns server 8.8.8.8, 114.114.114.114
     if (g_nameservers[0] == NULL) {
         assert(g_nameservers[1] == NULL);
-        g_nameservers[0] = strdup("8.8.8.8");
+        g_nameservers[0] = strdup("119.29.29.29");
         g_nameservers[1] = strdup("8.8.4.4");
     }
     if (g_nameservers[1] == NULL) {
-        if (strcmp(g_nameservers[0], "8.8.8.8") == 0) {
+        if (strcmp(g_nameservers[0], "119.29.29.29") == 0) {
             g_nameservers[1] = strdup("8.8.4.4");
         } else {
-            g_nameservers[1] = strdup("8.8.8.8");
+            g_nameservers[1] = strdup("119.29.29.29");
         }
     }
     //
