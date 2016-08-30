@@ -64,6 +64,7 @@ enum {
 
 
 enum htable_insert_ret{
+    HTABLE_INSERT_RET_INVALID_TYPE = -1,
     HTABLE_INSERT_RET_NORMAL = 0,
     HTABLE_INSERT_RET_REPLACE,
     HTABLE_INSERT_RET_NEVER_EXPIRE,
@@ -163,5 +164,8 @@ int htable_find_list(struct htable *ht, uchar *key, int typeoff, int idx, uchar 
 uchar *htable_delete_list_io(struct htable *ht, int typeoff, int idx, int off);
 uchar *htable_delete_list(struct htable *ht, uchar *key, int typeoff, int idx);
 int htable_insert_list(struct htable *, uchar *, int, int, uchar *, int, struct mvalue *, hashval_t *hashd);
+
+
+int check_support_type(ushort type);
 
 #endif

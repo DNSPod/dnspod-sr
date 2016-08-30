@@ -114,7 +114,10 @@ mbuf_alloc()
 
     entries = (prod_tail - cons_head);
     if (0 == entries)
+    {
+        dns_error(1, "out of mbuf ring(memory pool)");
         return NULL;
+    }
 
     cons_next = cons_head + 1;
     success = rte_atomic32_cmpset(&mbuf_ring->cons.head, cons_head, cons_next);

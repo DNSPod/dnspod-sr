@@ -67,7 +67,7 @@ struct mbuf_ring {
     void *ring[0] __attribute__((__aligned__(64))); 
 };
 
-#define MBUF_DATA_LEN   (2048)
+#define MBUF_DATA_LEN   (4096)
 typedef struct _mem_buf {
     struct mbuf_ring *mbuf;
     uint fetch_len;

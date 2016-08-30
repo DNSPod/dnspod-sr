@@ -321,7 +321,10 @@ send_msg_tcp(struct author *author, int fd)
     domain = author->eptcpfds[fd].domain;
     id = GET_IDX(ret);
     typeoff = GET_TYPE(ret);
-    htable_find_list(author->s->qlist, domain, typeoff, id, (uchar **)&mbuf);
+    ret = htable_find_list(author->s->qlist, domain, typeoff, id, (uchar **)&mbuf);
+    if (ret < 0)
+        return ret;
+    
     type = mbuf->qtype;
     if (mbuf->qname == Q_NS)
         type = A;

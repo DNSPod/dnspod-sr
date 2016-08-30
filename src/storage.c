@@ -687,7 +687,7 @@ int append_value_to_he(struct hentry *he, uchar *val, int type, int replace,
             oval = &(he->val.PTR);
             break;
         default:
-            return -1;
+            return HTABLE_INSERT_RET_INVALID_TYPE;
             break;
     }
     
@@ -743,6 +743,13 @@ htable_insert(struct htable *ht, uchar * key, int klen, int type, uchar * val, i
     struct hdata *hd = NULL;
     /* struct mvalue *pt = NULL;   //protect root and gtld */
     uchar dlen = klen;
+    
+    if (check_support_type(type) == -1)
+    {
+        printf("invalud type:%d, key:[%s]\n", type, key);
+        return -1;
+    }
+    
     he = malloc(sizeof(struct hentry) + dlen);
     if (he == NULL) {
         printf("oom\n");
@@ -759,7 +766,7 @@ htable_insert(struct htable *ht, uchar * key, int klen, int type, uchar * val, i
     pthread_spin_lock(&hd->lock);
     if (hd->list == NULL)
     {
-        append_value_to_he(he, val, type, replace, NULL);
+        ret = append_value_to_he(he, val, type, replace, NULL);
         hd->now = 1;
         hd->list = he;
     }
@@ -780,7 +787,7 @@ htable_insert(struct htable *ht, uchar * key, int klen, int type, uchar * val, i
                 exit(0);
             }
         }
-        append_value_to_he(he, val, type, replace, NULL);
+        ret = append_value_to_he(he, val, type, replace, NULL);
         he->next = hd->list;
         hd->list = he;
         hd->now++;
@@ -801,6 +808,13 @@ htable_insert_list(struct htable *ht, uchar * key, int klen, int type, uchar * v
     struct hdata *hd = NULL;
     /* struct mvalue *pt = NULL;   //protect root and gtld */
     uchar dlen = klen;
+
+    if (check_support_type(type) == -1)
+    {
+        printf("invalud type:%d, key:[%s]\n", type, key);
+        return -1;
+    }
+    
     he = malloc(sizeof(struct hentry) + dlen);
     if (he == NULL) {
         printf("oom\n");
@@ -817,7 +831,7 @@ htable_insert_list(struct htable *ht, uchar * key, int klen, int type, uchar * v
     pthread_spin_lock(&hd->lock);
     if (hd->list == NULL)
     {
-        append_value_to_he(he, val, type, replace, NULL);
+        ret = append_value_to_he(he, val, type, replace, NULL);
         hd->now = 1;
         hd->list = he;
     }
@@ -839,7 +853,7 @@ htable_insert_list(struct htable *ht, uchar * key, int klen, int type, uchar * v
                 exit(0);
             }
         }
-        append_value_to_he(he, val, type, replace, NULL);
+        ret = append_value_to_he(he, val, type, replace, NULL);
         prev->next = he;
         hd->now++;
     }
