@@ -183,6 +183,7 @@ read_records_from_file(const char * fn, struct htable *ds,
         str_to_len_label(tmpdomain, dlen);
 //         make_type_domain((uchar *)tmpdomain, dlen, type,
 //                 kbuffer);
+        check_dns_name(tmpdomain, &lowerdomain);
         insert_kv_mem(rbt, ds, kbuffer, dlen, type, vbuffer, 
                       mv->len + sizeof(struct mvalue), hijack, &lowerdomain); //key value
     }
