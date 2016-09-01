@@ -85,6 +85,9 @@ unsigned char SupportTypeTable[256] = {
 int
 check_support_type(ushort type)
 {
+    if (type > 0xFF)
+        return -1;
+    
     if (ISSUPPORTTYPE((unsigned char)type) != 0)
         return 0;
     
