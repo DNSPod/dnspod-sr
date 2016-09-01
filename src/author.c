@@ -438,7 +438,7 @@ release_qoutinfo(struct author *author, mbuf_type *mbuf, uint32_t idx)
     id = GET_IDX(idx);
     typeoff = GET_TYPE(idx);
     val = htable_delete_list(author->s->qlist, mbuf->lowerdomain.domain, typeoff, id);
-    assert(val == (void *)mbuf);
+    assert(val == NULL || val == (void *)mbuf);
     mbuf_free(mbuf);
     
     return 0;
