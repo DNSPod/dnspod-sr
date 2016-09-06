@@ -151,7 +151,7 @@ mbuf_free(mbuf_type *mbuf)
         prod_head = mbuf_ring->prod.head;
         cons_tail = mbuf_ring->cons.tail;
 
-        free_entries = (mask + cons_tail - prod_head);
+        free_entries = (mask + 1 + cons_tail - prod_head);
         assert(free_entries > 0);
 
         prod_next = prod_head + 1;
