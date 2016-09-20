@@ -673,7 +673,7 @@ launch_new_query(struct author *author/*, int idrowback*/)
         {
             if (ret > 0)
             {
-                if (mbuf->qtimes > MAX_TRY_TIMES/* || (msnow - mbuf->stime) > 5000*/)
+                if (mbuf->qtimes > MAX_TRY_TIMES || (msnow - mbuf->stime) > 5000)
                 {
                     release_qoutinfo(author, mbuf, GET_AID(i, typeoff));
                 }
