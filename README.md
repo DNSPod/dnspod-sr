@@ -25,7 +25,7 @@ Gigabit Ethernet, 4-core CPU, 4G memory, Linux 64-bit systems.
     BIND 9.9: 7 Wan qps
     unbound 4.7: 8 Wan qps
     
-    ![Benchmark](https://github.com/DNSPod/dnspod-sr/raw/master/benchmark.png)
+![Benchmark](https://github.com/DNSPod/dnspod-sr/raw/master/benchmark.png)
 
 Benchmark
 solution
