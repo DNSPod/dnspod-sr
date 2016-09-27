@@ -5,7 +5,7 @@ INSTALL_BIN=$(PREFIX)/bin
 INSTALL_ETC=$(PREFIX)/etc
 OBJS=utils.o datas.o net.o storage.o dns.o io.o event.o author.o init.o update.o control.o memory.o
 LD=-lm -lc
-CC = gcc
+CC = g++
 SERVER_NAME=dnspod-sr
 
 
@@ -16,7 +16,7 @@ CFLAGS=-g -Wall# -O3
 # endif
 
 all:$(OBJS)
-	gcc -o $(SERVER_NAME) $(LD) $(OBJS) -lpthread -g# -O3
+	g++ -o $(SERVER_NAME) $(LD) $(OBJS) -lpthread -g# -O3
 #ltcmalloc
 
 #base 3

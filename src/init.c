@@ -37,6 +37,10 @@
 #include <signal.h>
 
 //----------------------------------------------
+char *g_nameservers[2]; // globals
+struct global_query_info *global_out_info;
+int query_type_map[256];
+struct server *global_serv;
 time_t global_now = 0;
 pthread_mutex_t gnlock;
 volatile sig_atomic_t refresh_record = 0;
@@ -89,7 +93,7 @@ create_author(struct server *s, int n)
     pthread_t apt[QUIZZER_NUM];
     if (n < 1 || n > 50)
         dns_error(0, "quizzer bad range");
-    if ((authors = malloc(sizeof(struct author) * n)) == NULL)
+    if ((authors = (struct author*)malloc(sizeof(struct author) * n)) == NULL)
         dns_error(0, "out of memory in quizzer");
     memset(authors, 0, sizeof(struct author) * n);
     s->authors = authors;
@@ -126,7 +130,7 @@ create_author(struct server *s, int n)
         else
             authors[i].end = QLIST_TABLE_SIZE / QUIZZER_NUM * (i + 1);
         memset(authors[i].ip, 0, IP_DATA_LEN);
-        authors[i].loginfo = malloc(sizeof(struct log_info));
+        authors[i].loginfo = (struct log_info*)malloc(sizeof(struct log_info));
         memset(authors[i].loginfo, 0, sizeof(struct log_info));
         authors[i].loginfo->log_type = TYPE_QUIZZER;
         authors[i].loginfo->logfd = create_new_log(s->logpath, i, TYPE_QUIZZER);
@@ -170,7 +174,7 @@ create_fetcher(struct server *s, int n)
     pthread_t fpt[FETCHER_NUM];
     if (n < 1)
         return -1;
-    ws = malloc(sizeof(struct fetcher) * n);    //associated a worker with main thread
+    ws = (struct fetcher*)malloc(sizeof(struct fetcher) * n);    //associated a worker with main thread
     if (ws == NULL)
         return -1;
     memset(ws, 0, sizeof(struct fetcher) * n);
@@ -187,14 +191,14 @@ create_fetcher(struct server *s, int n)
         tmp->mc = init_msgcache(100);
         if (tmp->mc == NULL)
             dns_error(0, "get msgcache");
-        tmp->loginfo = malloc(sizeof(struct log_info));
+        tmp->loginfo = (struct log_info*)malloc(sizeof(struct log_info));
         memset(tmp->loginfo, 0, sizeof(struct log_info));
         tmp->loginfo->lastlog = global_now;
         tmp->loginfo->log_type = TYPE_FETCHER;
         tmp->loginfo->logfd = create_new_log(s->logpath, i, TYPE_FETCHER);
         if (tmp->loginfo->logfd < 0)
             dns_error(0, "log file error");
-        if (pthread_create(fpt + i, NULL, (void *) run_fetcher, tmp) != 0)
+        if (pthread_create(fpt + i, NULL, (void* (*)(void*))run_fetcher, tmp) != 0)
             dns_error(0, "init worker");
     }
     global_out_info->thread_num += i;
@@ -218,7 +222,7 @@ create_fetcher(struct server *s, int n)
 static struct server *
 server_init(void)
 {
-    struct server *s = malloc(sizeof(struct server));
+  struct server *s = (struct server*)malloc(sizeof(struct server));
     if (s == NULL)
         dns_error(0, "out of memory in server_init");
     s->nfetcher = FETCHER_NUM;
@@ -339,8 +343,8 @@ int init_globe()
     global_out_info = (struct global_query_info *)shmat(shmid, NULL, 0);
     memset(global_out_info, 0, sizeof(struct global_query_info));
     global_out_info->thread_num = 0;
-    int i;
-    for (i = 0; i < sizeof(query_type_map) / sizeof(int); ++i)
+
+    for (unsigned i = 0; i < sizeof(query_type_map) / sizeof(int); ++i)
     {
         query_type_map[i] = -1;
     }
@@ -442,9 +446,9 @@ main(int argc, char **argv)
         dns_error(0, "create worker");
     if (create_author(s, s->nquizzer) < 0)
         dns_error(0, "create author");
-    if (pthread_create(&pt, NULL, (void *) time_cron, s) != 0)
+    if (pthread_create(&pt, NULL, (void* (*)(void*))time_cron, s) != 0)
         dns_error(0, "time cron error");
-    if (pthread_create(&ctl, NULL, (void *)recv_update, s) != 0) {
+    if (pthread_create(&ctl, NULL, (void* (*)(void*))recv_update, s) != 0) {
         dns_error(0, "recv update thread error");
     }
     read_root(s->datasets, s->ttlexp);

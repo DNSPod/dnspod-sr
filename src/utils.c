@@ -62,7 +62,7 @@ get_random_data(uchar * buffer, int len)
 uchar *
 get_str(uchar * str, int len)
 {
-    uchar *ret = malloc(len + 1);
+  uchar *ret = (uchar *)malloc(len + 1);
     strncpy((char *)ret, (char *)str, len + 1);
     ret[len] = 0;
     return ret;
@@ -125,12 +125,12 @@ int
 trig_signals(int sig)
 {
     sigset_t bset, oset;
-    int sigs[] = { SIGINT, SIGBUS, SIGSEGV, SIGPIPE, }, i, sig_num;
+    int sigs[] = { SIGINT, SIGBUS, SIGSEGV, SIGPIPE, },  sig_num;
     struct sigaction sa, oa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = sig_segment_fault;
     sa.sa_flags = SA_RESTART;
-    for (i = 0; i < sizeof(sigs) / sizeof(sigs[0]); i++) {
+    for (unsigned i = 0; i < sizeof(sigs) / sizeof(sigs[0]); i++) {
         sig_num = sigs[i];
         sigaction(sig_num, &sa, &oa);
     }
@@ -143,7 +143,7 @@ trig_signals(int sig)
 
 
 void
-drop_privilege(char * root)
+drop_privilege(const char * root)
 {
     if (root == NULL)
         return;
@@ -158,8 +158,8 @@ drop_privilege(char * root)
 int
 dict_comp_uint_equ(void *a, void *b)
 {
-    uint *u1 = a;
-    uint *u2 = b;
+    uint *u1 = (uint *) a;
+    uint *u2 = (uint *)b;
     if (u1 == NULL)
         return -1;
     if (u2 == NULL)
@@ -173,8 +173,8 @@ dict_comp_uint_equ(void *a, void *b)
 int
 dict_comp_str_equ(void *a, void *b)
 {
-    uchar *d1 = a;
-    uchar *d2 = b;
+    uchar *d1 = (uchar *)a;
+    uchar *d2 = (uchar *)b;
     int to = 256;
     if (d1 == NULL)
         return -1;
@@ -531,7 +531,7 @@ void
 insert_mem_bar(void)
 {
     int i, size = random() % 99 + 10000;
-    uchar *ptr = malloc(size);
+    uchar *ptr = (uchar *)malloc(size);
     if (ptr == NULL)
         return;
     for (i = 0; i < size; i++)
@@ -583,7 +583,7 @@ print_hex(uchar * val, int n)
 
 //global error function
 void
-dns_error(int level, char *msg)
+dns_error(int level, const char *msg)
 {
     dbg("Error:%s\n", msg);
     fflush(stdout);
@@ -626,7 +626,7 @@ hashval_t
 nocase_char_hash_function(void *argv, int klen)
 {
     int len = (klen == 2) ? 1 : klen;
-    uchar *buf = argv;
+    uchar *buf = (uchar*)argv;
     hashval_t hash = 5381;
 //     to_lowercase(buf, len);
     while (len--)

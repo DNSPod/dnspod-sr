@@ -151,7 +151,7 @@ struct rbtree {
 };
 
 int trig_signals(int);
-void drop_privilege(char *);
+void drop_privilege(const char *);
 
 uchar *get_str(uchar * str, int len);
 void put_str(uchar *);
@@ -161,7 +161,7 @@ int dict_comp_str_equ(void *a, void *b);
 int rbt_comp_uint_gt(void *v1, void *v2, void *argv);
 int rbt_comp_ttl_gt(void *v1, void *v2, void *argv);
 
-void dns_error(int, char *);
+void dns_error(int, const char *);
 int dbg(const char *format, ...);
 void print_hex(uchar * val, int n);
 

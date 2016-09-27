@@ -4,6 +4,6 @@
 
 #define CACHE_FLUSH 1
 #define HIJACK  2
-int start_local_server();
+int start_local_server(struct server *s);
 
 #endif

@@ -91,7 +91,7 @@ delete_close_event(int fd, struct fetcher *f)
     el = f->el;
     if (el == NULL)
         return -1;
-    if ((nd = malloc(sizeof(struct list_node))) == NULL)
+    if ((nd = (struct list_node*)malloc(sizeof(struct list_node))) == NULL)
         return -1;
     nd->data = malloc(sizeof(int));
     if (nd->data == NULL) {
@@ -923,19 +923,19 @@ check_ttl_expire(struct author *author)
     pthread_spin_lock(&rbt->lock);
     pn = min_node(rbt);
     while (pn != NULL) {
-        tn = pn->key;
+      tn = (ttlnode*)pn->key;
         //if exp was 12, now was 11, start
         //if exp was 12, now was 5, break
         if (tn->exp > (now + TTL_UPDATE))       //3 secs after it will not expire
             break;
         /* printf("ttl refresh "); */
         /* dbg_print_td(tn->data); */
-        tn = delete_node(rbt, pn);
+        tn = (ttlnode*)delete_node(rbt, pn);
         pthread_spin_unlock(&rbt->lock);
         if (tn != NULL) {
             memset(mbuf, 0, sizeof(mbuf_type));
             mbuf->qname = tn->type;     //type
-            mbuf->qtype = tn->type;
+            mbuf->qtype = (rrtype)tn->type;
             mbuf->dlen = tn->dlen;
             memcpy(&(mbuf->lowerdomain), tn->lowerdomain, sizeof(packet_type));
             int i;

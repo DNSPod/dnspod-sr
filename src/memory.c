@@ -125,7 +125,7 @@ mbuf_alloc()
         return NULL;
 
     /* copy in table */
-    mbuf = mbuf_ring->ring[cons_head & mask];
+    mbuf = (mbuf_type*)mbuf_ring->ring[cons_head & mask];
     assert(mbuf != NULL);
     mbuf_compiler_barrier();
     while (mbuf_ring->cons.tail != cons_head);

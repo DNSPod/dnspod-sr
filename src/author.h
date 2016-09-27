@@ -30,7 +30,7 @@
 #ifndef _AUTHOR_H
 #define _AUTHOR_H
 
-#define _GNU_SOURCE
+//#define _GNU_SOURCE
 
 #include "io.h"
 #include <sys/ipc.h>
@@ -169,8 +169,10 @@ struct server {
     int is_forward;
 };
 
-struct server *global_serv;
-char *g_nameservers[2];
+extern struct global_query_info *global_out_info;
+extern int query_type_map[];
+extern char *g_nameservers[];
+extern struct server *global_serv;
 
 #define MAX_CPU_NUM 65
 struct thread_query_info {
@@ -184,8 +186,8 @@ struct global_query_info {
     struct thread_query_info query_info[MAX_CPU_NUM];
 };
 
-struct global_query_info *global_out_info;
-int query_type_map[256];
+
+
 
 struct seninfo {
     uint len;
