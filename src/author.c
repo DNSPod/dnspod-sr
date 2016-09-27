@@ -440,7 +440,7 @@ release_qoutinfo(struct author *author, mbuf_type *mbuf, uint32_t idx)
     val = htable_delete_list(author->s->qlist, mbuf->lowerdomain.domain, typeoff, id);
     if (val == NULL)
     {
-        printf("del list val =0, mbuf:0x%0x\n", mbuf);
+      printf("del list val =0, mbuf:0x%0lx\n", (long unsigned int)mbuf);
         return 0;
     }
     assert(val == (void *)mbuf);

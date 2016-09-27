@@ -38,8 +38,9 @@
 
 enum {
     FETCHER_NUM = 2,
-    SERVER_PORT = 53,
+    DEFAULT_SERVER_PORT = 53,
 };
+extern int server_port;
 
 
 enum {

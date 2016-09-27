@@ -29,6 +29,7 @@
 
 #include "io.h"
 #include "config.h"
+#include "author.h"
 
 //standard format support only
 //name,ttl,type,data
@@ -195,7 +196,7 @@ read_records_from_file(const char * fn, struct htable *ds,
 int
 read_root(struct htable *ds, struct rbtree *rbt)
 {
-    return read_records_from_file(SR_ROOT_FILE, ds, rbt, 0);
+    return read_records_from_file(sr_root_file, ds, rbt, 0);
 }
 
 
@@ -203,7 +204,7 @@ int
 refresh_records(struct htable *ds, struct rbtree *rbt)
 {
     printf("read from records.z\n");
-    return read_records_from_file(SR_RECORDS_FILE, ds, rbt, 1);
+    return read_records_from_file(sr_records_file, ds, rbt, 1);
 }
 
 
@@ -334,7 +335,12 @@ read_transfer(FILE * fd, struct htable *fwd)
 int
 read_config(const char *fn, char * logpath, struct htable *forward, char **nameservers)
 {
-    FILE *fd = NULL;
+  printf("Reading config : %s\n",fn);
+
+  strcpy(sr_root_file,SR_DEFAULT_ROOT_FILE);
+  strcpy(sr_records_file,SR_DEFAULT_RECORDS_FILE);
+
+  FILE *fd = NULL;
     char buf[1024] = {0};
     if (fn == NULL) {
         return -1;
@@ -348,14 +354,33 @@ read_config(const char *fn, char * logpath, struct htable *forward, char **names
             read_transfer(fd, forward);
             continue;
         }
-        if (strcmp(buf, "log_path:") == 0) {
+        else if (strcmp(buf, "log_path:") == 0) {
             read_logpath(fd, logpath);
             continue;
         }
-        if (strcmp(buf, "resolve:") == 0) {
+        else if (strcmp(buf, "resolve:") == 0) {
             read_resolve(fd, nameservers, 2);
             continue;
         }
+	else if (strncmp(buf, "listen:",strlen("listen:")) == 0) {
+	  sscanf(buf, "listen:%d", &server_port);
+	  printf("Changed listen port to: %d\n",server_port);
+	  continue;
+        }
+	else if (strncmp(buf, "root:",strlen("root:")) == 0) {
+	  sscanf(buf, "root:%s", sr_root_file);
+	  printf("Changed root_file to: %s\n",sr_root_file);
+	  continue;
+        }
+	else if (strncmp(buf, "records:",strlen("root:")) == 0) {
+	  sscanf(buf, "records:%s", sr_records_file);
+	  printf("Changed records_file to: %s\n",sr_records_file);
+	  continue;
+        }
+
+	else {
+	  printf("Skipping line : '%s'\n",buf);
+	}
     }
     fclose(fd);
     return 0;
