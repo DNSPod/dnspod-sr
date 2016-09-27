@@ -1,16 +1,18 @@
-# 如何安装
+# Installation
 
-## 编译
-./src目录下执行 make 即可编译出可执行文件
+## Compile
+
+Run make in ./src to produce binary
 
     make
 
-## 配置文件
-默认配置文件为当前目录下的 sr.conf，也可以在命令行参数中指定
+## config file
+
+The default configuration file is sr.conf，other wise you can pass in the command line parameter
 
     ./dnspod-sr /path/of/sr.conf
 
-当前配置文件中支持为特定域名指定外部递归 DNS，以 xfer 开头，如下:
+In the current configuration file, you can specify external recursive DNS for a specific domain name starting with xfer as follows:
 
     xfer:
     googleusercontent.com.:8.8.8.8
@@ -19,9 +21,9 @@
     s-static.ak.facebook.com.edgekey.net.:8.8.8.8
     :
 
-最后一行以`:`结束。
+The last line ends with a `:`.
 
-配置日志文件目录（可选）
+Configure the log directory(optional)
 
     log_path:
     ./log/
