@@ -144,7 +144,7 @@ int
 insert_node(struct rbtree *rbt, struct rbnode *pnd)
 {
     struct rbnode *tmp = &rbt->nil, *itor = rbt->root;
-    struct rbnode *nd = malloc(sizeof(struct rbnode));
+    struct rbnode *nd = (struct rbnode *)malloc(sizeof(struct rbnode));
     if (nd == NULL)
         return -1;
     *nd = *pnd;
@@ -285,7 +285,7 @@ delete_node(struct rbtree *rbt, struct rbnode *nd)
     struct rbnode *tmp, *itor;
     if (nd == NULL || rbt == NULL)
         return NULL;
-    val = nd->key;
+    val = (ttlnode*)nd->key;
     /* printf("delete node ttl: %d ", val->exp); */
     /* dbg_print_td(val->data); */
     //pthread_mutex_lock(&(rbt->lock));
@@ -323,7 +323,7 @@ delete_node(struct rbtree *rbt, struct rbnode *nd)
 struct rbtree *
 create_rbtree(comprbt * c, void *argv)
 {
-    struct rbtree *rbt = malloc(sizeof(struct rbtree));
+  struct rbtree *rbt = (struct rbtree *)malloc(sizeof(struct rbtree));
     if (rbt == NULL)
         return NULL;
     rbt->argv = argv;
@@ -374,7 +374,7 @@ rbtree_test(void)
     //{
     for (j = 0; j < slice; j++) {
         len = random() % 30;
-        tn = malloc(sizeof(struct ttlnode) + len);
+        tn = (ttlnode*)malloc(sizeof(struct ttlnode) + len);
         if (tn == NULL)
             printf("oom\n");
         tn->exp = j;
@@ -390,7 +390,7 @@ rbtree_test(void)
     for (j = 0; j < slice; j++) {
         pn = min_node(rbt);
         if (pn != NULL) {
-            tn = delete_node(rbt, pn);
+            tn = (ttlnode*)delete_node(rbt, pn);
             free(tn);
         } else
             printf("error\n");

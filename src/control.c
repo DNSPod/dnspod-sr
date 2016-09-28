@@ -62,7 +62,7 @@ int cache_flush(uchar *domain, uint16_t type, struct htable* ht, struct rbtree *
         //if update, we had delete tn in rbt
         //else update tn in rbt
         if (pn != NULL) {
-            tmp_tn = delete_node(ttlexp, pn);
+	  tmp_tn = (ttlnode*)delete_node(ttlexp, pn);
             if (tmp_tn) {
                 free(tmp_tn->lowerdomain);
                 free(tmp_tn);

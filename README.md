@@ -1,63 +1,69 @@
 # DNSPod Security Recursive DNS Server
 
+dnspod-sr is a run on the Linux platform, high-performance recursive DNS server software, high performance, high-load, easy to expand the advantages of non-BIND and other software can match.
 
-## 关于
-dnspod-sr 是一个运行在 Linux 平台上的高性能的递归 DNS 服务器软件，具备高性能、高负载、易扩展的优势，非 BIND 等软件可以比拟。
+## characteristic
 
-## 特性
-1. 高性能，比所有流行的开源 DNS 软件性能高出2倍以上
-2. 安全，能抵御一般攻击
-3. 稳定，有效降低解析失败率
-4. 主动刷新缓存，响应速度更快
-5. 易于扩展，非常容易部署
-6. 防污染，能够正确解析被污染域名
+   1.  High-performance, than all the popular open source DNS software performance higher than 2 times
+   2. Security, generally can withstand attacks
+   3. Stability, reduce the resolution failure rate
+   4. Initiative to refresh the cache, and faster response
+   5. Easy to extend, very easy to deploy
+   6. Pollution, contamination can correctly parse the domain name
 
+## performance
 
-## 性能
-dnspod-sr 依托于 DNSPod 多年运营和优化 DNS 服务的经验，针对国内复杂的网络情况，对递归 DNS 进行了一系列的优化，比较其他开源软件，性能得到大幅提升。
+dnspod-sr relying on DNSPod years experience operating, and optimizing DNS services, complex network for the domestic situation, a series of recursive DNS optimization, compared with other open source software, performance is greatly improved.
 
-#### 测试环境
-千兆网卡，4核 CPU，4G 内存，Linux 64位系统。
+#### test environment
 
-#### 性能测试
-- dnspod-sr: 15万 qps
-- BIND 9.9: 7万 qps
-- unbound 4.7: 8万 qps
+Gigabit Ethernet, 4-core CPU, 4G memory, Linux 64-bit systems.
 
+#### Performance Testing
+
+    dnspod-sr: 15 Wan qps
+    BIND 9.9: 7 Wan qps
+    unbound 4.7: 8 Wan qps
+    
 ![Benchmark](https://github.com/DNSPod/dnspod-sr/raw/master/benchmark.png)
 
-## 解决方案
-1. 架设 dnspod-sr 集群，替换各大运营商目前基于 BIND 的陈旧方案，减少运营成本
-2. 公司、学校、政府等组织内部 DNS，解析外部不可见的私有域名，提高上网速度
+Benchmark
+solution
 
-## 快速开始
-下载源码：
+    Setup dnspod-sr cluster, replace implementation based on the current BIND obsolete programs to reduce operating costs
+    Companies, schools, government and other organizations internal DNS, resolving external invisible private domain, to improve Internet speed
+
+## Quick Start
+
+Download Source:
 
     git clone https://github.com/DNSPod/dnspod-sr.git
     cd dnspod-sr
 
-或者下载压缩包：
+## Or download the archive:
 
     https://github.com/DNSPod/dnspod-sr/zipball/master
 
-编译源码：
+# Compile the code:
 
     cd src
     make
 
-运行
+run
 
     ./dnspod-sr
 
-
 ## Roadmap
-- 支持集群式部署
 
-## 文档 & 反馈
-- Wiki: <https://github.com/DNSPod/dnspod-sr/wiki>
-- FAQ: <https://github.com/DNSPod/dnspod-sr/wiki/FAQ>
-- Issues: <https://github.com/DNSPod/dnspod-sr/issues>
-- [提交反馈](https://github.com/DNSPod/dnspod-sr/issues/new)
+    Support for cluster deployment
 
-## 开源协议
-dnspod-sr 在 BSD License 下发布。
+## Documentation & Feedback
+
+   - Wiki: https://github.com/DNSPod/dnspod-sr/wiki
+   - FAQ: https://github.com/DNSPod/dnspod-sr/wiki/FAQ
+   - Issues: https://github.com/DNSPod/dnspod-sr/issues
+   - Submit feedback https://github.com/DNSPod/dnspod-sr/issues/new
+
+## Open source license
+
+dnspod-sr is licensed under the BSD License.
