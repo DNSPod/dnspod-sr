@@ -44,10 +44,20 @@ struct global_query_info *global_out_info;
 int query_type_map[256];
 
 //----------------------------------------------
+char *g_nameservers[2]; // globals
+struct global_query_info *global_out_info;
+int query_type_map[256];
+struct server *global_serv;
 time_t global_now = 0;
 pthread_mutex_t gnlock;
 volatile sig_atomic_t refresh_record = 0;
 //----------------------------------------------
+int server_port = DEFAULT_SERVER_PORT;
+
+#define max_path_len 512
+char sr_config_file[max_path_len];
+char sr_root_file[max_path_len];
+char sr_records_file[max_path_len];
 
 
 extern int daemon(int, int);
@@ -55,11 +65,11 @@ struct entry;
 
 
 static int
-daemonrize(int dm)
+daemonize(int dm)
 {
     if (dm == 1) {
         if (daemon(1, 0) == -1)
-            dns_error(0, "daemonrize");
+            dns_error(0, "daemonize");
         else
             printf("daemon!!!\n");      //we will never see this
     }
@@ -68,12 +78,13 @@ daemonrize(int dm)
 
 
 static int
-create_listen_ports(int port, int proto, uchar * addr)
+create_listen_ports (int port, int proto, uchar * addr)
 {
     int fd = -1;
+    printf("going to bind port:%d,proto:%d\n", port, proto);
     fd = create_socket(port, proto, addr);
     if (fd < 0 || set_non_block(fd) < 0) {
-        printf("port:%d,proto:%d\n", port, proto);
+      printf("error could not bind port:%d,proto:%d\n", port, proto);
         dns_error(0, "fd < 0");
     }
     return fd;
@@ -89,14 +100,15 @@ create_author(struct server *s, int n)
     pthread_t apt[QUIZZER_NUM];
     if (n < 1 || n > 50)
         dns_error(0, "quizzer bad range");
-    if ((authors = malloc(sizeof(struct author) * n)) == NULL)
+    if ((authors = (struct author*)malloc(sizeof(struct author) * n)) == NULL)
         dns_error(0, "out of memory in quizzer");
     memset(authors, 0, sizeof(struct author) * n);
     s->authors = authors;
     for (i = 0; i < n; i++) {
         authors[i].idx = i;
         authors[i].cudp = s->ludp;
-        authors[i].audp = create_listen_ports(i * 1000 + 998, UDP, NULL);
+        authors[i].audp = create_listen_ports(i * 1000 +
+					      server_port + 998, UDP, NULL);
         if (authors[i].audp < 0)
             dns_error(0, "auth fd error");
         set_sock_buff(authors[i].audp, 1);
@@ -125,7 +137,7 @@ create_author(struct server *s, int n)
         else
             authors[i].end = QLIST_TABLE_SIZE / QUIZZER_NUM * (i + 1);
         memset(authors[i].ip, 0, IP_DATA_LEN);
-        authors[i].loginfo = malloc(sizeof(struct log_info));
+        authors[i].loginfo = (struct log_info*)malloc(sizeof(struct log_info));
         memset(authors[i].loginfo, 0, sizeof(struct log_info));
         authors[i].loginfo->log_type = TYPE_QUIZZER;
         authors[i].loginfo->logfd = create_new_log(s->logpath, i, TYPE_QUIZZER);
@@ -169,7 +181,7 @@ create_fetcher(struct server *s, int n)
     pthread_t fpt[FETCHER_NUM];
     if (n < 1)
         return -1;
-    ws = malloc(sizeof(struct fetcher) * n);    //associated a worker with main thread
+    ws = (struct fetcher*)malloc(sizeof(struct fetcher) * n);    //associated a worker with main thread
     if (ws == NULL)
         return -1;
     memset(ws, 0, sizeof(struct fetcher) * n);
@@ -186,14 +198,14 @@ create_fetcher(struct server *s, int n)
         tmp->mc = init_msgcache(100);
         if (tmp->mc == NULL)
             dns_error(0, "get msgcache");
-        tmp->loginfo = malloc(sizeof(struct log_info));
+        tmp->loginfo = (struct log_info*)malloc(sizeof(struct log_info));
         memset(tmp->loginfo, 0, sizeof(struct log_info));
         tmp->loginfo->lastlog = global_now;
         tmp->loginfo->log_type = TYPE_FETCHER;
         tmp->loginfo->logfd = create_new_log(s->logpath, i, TYPE_FETCHER);
         if (tmp->loginfo->logfd < 0)
             dns_error(0, "log file error");
-        if (pthread_create(fpt + i, NULL, (void *) run_fetcher, tmp) != 0)
+        if (pthread_create(fpt + i, NULL, (void* (*)(void*))run_fetcher, tmp) != 0)
             dns_error(0, "init worker");
     }
     global_out_info->thread_num += i;
@@ -213,10 +225,11 @@ create_fetcher(struct server *s, int n)
 }
 
 
+
 static struct server *
 server_init(void)
 {
-    struct server *s = malloc(sizeof(struct server));
+  struct server *s = (struct server*)malloc(sizeof(struct server));
     if (s == NULL)
         dns_error(0, "out of memory in server_init");
     s->nfetcher = FETCHER_NUM;
@@ -227,11 +240,6 @@ server_init(void)
     pthread_spin_init(&s->eventlist.lock, 0);
     //pthread_mutex_init(&s->lock,NULL);
     s->eventlist.head = NULL;
-    if ((s->ludp = create_listen_ports(SERVER_PORT, UDP, (uchar *)SRV_ADDR)) < 0)
-        dns_error(0, "can not open udp");
-    set_sock_buff(s->ludp, 10);
-    if ((s->ltcp = create_listen_ports(SERVER_PORT, TCP, (uchar *)SRV_ADDR)) < 0)
-        dns_error(0, "can not open tcp");
     s->datasets =
         htable_create(NULL, dict_comp_str_equ, HASH_TABLE_SIZE,
                       MULTI_HASH);
@@ -254,6 +262,8 @@ server_init(void)
     s->is_forward = 0;
     return s;
 }
+
+
 
 
 void *
@@ -340,8 +350,8 @@ int init_globe()
     global_out_info = (struct global_query_info *)shmat(shmid, NULL, 0);
     memset(global_out_info, 0, sizeof(struct global_query_info));
     global_out_info->thread_num = 0;
-    int i;
-    for (i = 0; i < sizeof(query_type_map) / sizeof(int); ++i)
+
+    for (unsigned i = 0; i < sizeof(query_type_map) / sizeof(int); ++i)
     {
         query_type_map[i] = -1;
     }
@@ -363,6 +373,14 @@ void init_mempool()
     ret = mempool_create(MEMPOOL_SIZE);
     if (ret < 0)
         dns_error(0, "create mempool failed");
+}
+
+static void server_listen(struct server *s) {
+  if ((s->ludp = create_listen_ports(server_port, UDP, (uchar *)SRV_ADDR)) < 0)
+    dns_error(0, "can not open udp");
+  set_sock_buff(s->ludp, 10);
+  if ((s->ltcp = create_listen_ports(server_port, TCP, (uchar *)SRV_ADDR)) < 0)
+    dns_error(0, "can not open tcp");
 }
 
 int
@@ -405,15 +423,18 @@ main(int argc, char **argv)
     }
     sanity_test(0);
     drop_privilege("./");
-    daemonrize(daemon);
+    daemonize(daemon);
     trig_signals(1);
     global_now = time(NULL);    //for read root.z
     g_nameservers[0] = g_nameservers[1] = NULL;
     init_globe();
     init_mempool();
+
     s = server_init();
+    read_config(config, (char *)s->logpath, s->forward, g_nameservers);    
     s->is_forward = is_forward;
-    read_config(config, (char *)s->logpath, s->forward, g_nameservers);
+    server_listen(s);
+
     // add default dns server 8.8.8.8, 114.114.114.114
     if (g_nameservers[0] == NULL) {
         assert(g_nameservers[1] == NULL);
@@ -432,9 +453,9 @@ main(int argc, char **argv)
         dns_error(0, "create worker");
     if (create_author(s, s->nquizzer) < 0)
         dns_error(0, "create author");
-    if (pthread_create(&pt, NULL, (void *) time_cron, s) != 0)
+    if (pthread_create(&pt, NULL, (void* (*)(void*))time_cron, s) != 0)
         dns_error(0, "time cron error");
-    if (pthread_create(&ctl, NULL, (void *)recv_update, s) != 0) {
+    if (pthread_create(&ctl, NULL, (void* (*)(void*))recv_update, s) != 0) {
         dns_error(0, "recv update thread error");
     }
     read_root(s->datasets, s->ttlexp);

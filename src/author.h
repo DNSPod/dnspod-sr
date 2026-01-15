@@ -30,7 +30,7 @@
 #ifndef _AUTHOR_H
 #define _AUTHOR_H
 
-#define _GNU_SOURCE
+//#define _GNU_SOURCE
 
 #include "io.h"
 #include <sys/ipc.h>
@@ -38,8 +38,9 @@
 
 enum {
     FETCHER_NUM = 2,
-    SERVER_PORT = 53,
+    DEFAULT_SERVER_PORT = 53,
 };
+extern int server_port;
 
 
 enum {
@@ -168,8 +169,10 @@ struct server {
     int is_forward;
 };
 
+extern struct global_query_info *global_out_info;
+extern int query_type_map[];
+extern char *g_nameservers[];
 extern struct server *global_serv;
-extern char *g_nameservers[2];
 
 #define MAX_CPU_NUM 65
 struct thread_query_info {
@@ -183,8 +186,8 @@ struct global_query_info {
     struct thread_query_info query_info[MAX_CPU_NUM];
 };
 
-extern struct global_query_info *global_out_info;
-extern int query_type_map[256];
+
+
 
 struct seninfo {
     uint len;

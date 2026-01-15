@@ -42,14 +42,14 @@ struct iner_event {
 struct event *
 create_event(int size)
 {
-    struct event *ev =
+  struct event *ev =(struct event *)
         malloc(sizeof(struct event) + sizeof(struct event_data) * size);
     int epfd = epoll_create(size);
     if (epfd == 0)
         dns_error(0, "epoll create");
     ev->size = size;
     ev->ie =
-        malloc(sizeof(struct iner_event) +
+      (struct iner_event*)malloc(sizeof(struct iner_event) +
                sizeof(struct epoll_event) * (ev->size));
     if (ev->ie == NULL)
         dns_error(0, "alloc iner event");

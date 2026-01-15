@@ -44,7 +44,7 @@ init_msgcache(int n)
     if (n < 1 || n > 5000)      //page size == 4k. 5000*4k == 20m
         return NULL;
     pgsz = getpagesize();
-    if ((mc = malloc(sizeof(struct msgcache) + pgsz * n)) == NULL)
+    if ((mc = (struct msgcache*)malloc(sizeof(struct msgcache) + pgsz * n)) == NULL)
         return NULL;
     mc->size = pgsz * n;
     pthread_spin_init(&mc->lock, 0);
@@ -123,7 +123,7 @@ htable_create(hashfunc * h, comparefunc * c, int size, int num)
     struct htable *ht = NULL;
     if (c == NULL)
         return NULL;
-    if ((ht = malloc(sizeof(struct htable) * num)) == NULL)
+    if ((ht = (struct htable*)malloc(sizeof(struct htable) * num)) == NULL)
         return NULL;
     for (i = 0; i < num; i++) {
         ht[i].h = h;
@@ -136,7 +136,7 @@ htable_create(hashfunc * h, comparefunc * c, int size, int num)
         ht[i].mask = size - 1;
         pthread_spin_init(&(ht[i].lock), 0);
         if ((ht[i].table =
-             malloc(sizeof(struct hdata) * ht[i].size)) == NULL) {
+             (struct hdata*)malloc(sizeof(struct hdata) * ht[i].size)) == NULL) {
             for (j = 0; j < i; j++)
                 free(ht[j].table);
             free(ht);
@@ -179,7 +179,7 @@ void find_io_from_he(struct hentry *he, uint32_t limit, struct rbtree *rbt, int 
             pn = find_node(rbt, &tn);
             if (pn != NULL)
             {
-                ptn = delete_node(rbt, pn);
+                ptn = (ttlnode*)delete_node(rbt, pn);
                 if (ptn != NULL)
                 {
                     //printf("delete true\n");
@@ -750,7 +750,7 @@ htable_insert(struct htable *ht, uchar * key, int klen, int type, uchar * val, i
         return -1;
     }
     
-    he = malloc(sizeof(struct hentry) + dlen);
+    he = (struct hentry*)malloc(sizeof(struct hentry) + dlen);
     if (he == NULL) {
         printf("oom\n");
         return -1;
@@ -815,7 +815,7 @@ htable_insert_list(struct htable *ht, uchar * key, int klen, int type, uchar * v
         return -1;
     }
     
-    he = malloc(sizeof(struct hentry) + dlen);
+    he = (struct hentry*)malloc(sizeof(struct hentry) + dlen);
     if (he == NULL) {
         printf("oom\n");
         return -1;
@@ -914,7 +914,7 @@ st_th(void *arg)
     for (i = idx * NUMX; i < (idx + 1) * NUMX; i++) {
         hash = 0;
         sprintf((char *)key, "%dkey", i);
-        val = malloc(50);
+        val = (uchar*)malloc(50);
         sprintf((char *)val, "%dval", i);
         //printf("%d,%s,%s\n",idx,key,val);
         klen = strlen((const char *)key) + 1;

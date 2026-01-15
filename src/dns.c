@@ -129,7 +129,7 @@ passer_dns_data(mbuf_type *mbuf)
         tail += 1;
     else
         tail += dlen;
-    mbuf->qtype = ntohs(*(ushort *) tail);
+    mbuf->qtype = (rrtype)ntohs(*(ushort *) tail);
     if (check_support_type(mbuf->qtype) == 0)
         mbuf->err = 0;
     return;
@@ -224,9 +224,9 @@ insert_into_ttltree(struct rbtree *rbt, uchar * td, int len, int type, uint ttl,
     /* dbg_print_td(td); */
     struct rbnode node = { 0 };
     struct ttlnode *tn = NULL;
-    if ((tn = malloc(sizeof(struct ttlnode))) == NULL)
+    if ((tn = (struct ttlnode*)malloc(sizeof(struct ttlnode))) == NULL)
         return -1;
-    if ((tn->lowerdomain = malloc(sizeof(packet_type))) == NULL) {
+    if ((tn->lowerdomain = (packet_type*)malloc(sizeof(packet_type))) == NULL) {
         free(tn);
         return -1;
     }
@@ -539,7 +539,7 @@ insert_kv_mem(struct rbtree *rbt, struct htable *ds, uchar * k, int klen,
         return -1;
     hashval_t *hash = &(lowerdomain->hash[0]);
     idx = get_pre_mem_hash(k, klen, hash);
-    val = malloc(vlen);
+    val = (uchar*)malloc(vlen);
     if (val == NULL)
         return -1;
     memcpy(val, v, vlen);
@@ -561,7 +561,7 @@ insert_kv_mem(struct rbtree *rbt, struct htable *ds, uchar * k, int klen,
             //if update, we had delete tn in rbt
             //else update tn in rbt
             if (pn != NULL) {
-                tmp_tn = delete_node(rbt, pn);
+	      tmp_tn = (ttlnode*)delete_node(rbt, pn);
                 if (tmp_tn) {
                     free(tmp_tn->lowerdomain);
                     free(tmp_tn);
