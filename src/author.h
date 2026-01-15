@@ -168,8 +168,8 @@ struct server {
     int is_forward;
 };
 
-struct server *global_serv;
-char *g_nameservers[2];
+extern struct server *global_serv;
+extern char *g_nameservers[2];
 
 #define MAX_CPU_NUM 65
 struct thread_query_info {
@@ -183,8 +183,8 @@ struct global_query_info {
     struct thread_query_info query_info[MAX_CPU_NUM];
 };
 
-struct global_query_info *global_out_info;
-int query_type_map[256];
+extern struct global_query_info *global_out_info;
+extern int query_type_map[256];
 
 struct seninfo {
     uint len;

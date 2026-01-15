@@ -32,9 +32,16 @@
 #include "update.h"
 #include "config.h"
 #include "memory.h"
+#include "author.h"
 #include <sys/time.h>
 #include <assert.h>
 #include <signal.h>
+
+// Global variables definitions
+struct server *global_serv;
+char *g_nameservers[2];
+struct global_query_info *global_out_info;
+int query_type_map[256];
 
 //----------------------------------------------
 time_t global_now = 0;
