@@ -50,7 +50,7 @@ mbuf_ring_create(uint32_t count)
         r->prod.head = r->cons.head = 0;
         r->prod.tail = r->cons.tail = 0;
     }
-    
+
     return r;
 }
 
@@ -58,23 +58,23 @@ int
 mempool_create(uint32_t num)
 {
     mbuf_type *tmp;
-    int i;
-    
+    uint32_t i;
+
     mbuf_ring = mbuf_ring_create(num);
     if (NULL == mbuf_ring)
         return -1;
-    
+
     for (i = 0; i < num; i++)
     {
         tmp = (mbuf_type *)malloc(sizeof(mbuf_type));
         if (NULL == tmp)
             return -1;
-        
+
         tmp->mbuf = mbuf_ring;
         mbuf_ring->ring[i] = tmp;
     }
     mbuf_ring->prod.head = mbuf_ring->prod.tail = num - 1;
-    
+
     return 0;
 }
 
@@ -145,7 +145,7 @@ mbuf_free(mbuf_type *mbuf)
 
     if (NULL == mbuf)
         return 0;
-    
+
     /* move prod.head atomically */
     do {
         prod_head = mbuf_ring->prod.head;
@@ -164,6 +164,6 @@ mbuf_free(mbuf_type *mbuf)
 
     while (mbuf_ring->prod.tail != prod_head);
     mbuf_ring->prod.tail = prod_next;
-    
+
     return 0;
 }

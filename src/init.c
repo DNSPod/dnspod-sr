@@ -42,12 +42,6 @@ struct server *global_serv;
 char *g_nameservers[2];
 struct global_query_info *global_out_info;
 int query_type_map[256];
-
-//----------------------------------------------
-char *g_nameservers[2]; // globals
-struct global_query_info *global_out_info;
-int query_type_map[256];
-struct server *global_serv;
 time_t global_now = 0;
 pthread_mutex_t gnlock;
 volatile sig_atomic_t refresh_record = 0;
@@ -156,7 +150,7 @@ create_author(struct server *s, int n)
             dns_error(0, "create quizzer");
     }
     global_out_info->thread_num += i;
-    
+
     for(i = 0;i < QUIZZER_NUM ;i ++)
     {
         CPU_ZERO(&cpuinfo);
@@ -167,7 +161,7 @@ create_author(struct server *s, int n)
 //             exit(0);
         }
     }
-    
+
     return 0;
 }
 
@@ -209,7 +203,7 @@ create_fetcher(struct server *s, int n)
             dns_error(0, "init worker");
     }
     global_out_info->thread_num += i;
-    
+
     for(i = 0;i < FETCHER_NUM ;i ++)
     {
         CPU_ZERO(&cpuinfo);
@@ -220,7 +214,7 @@ create_fetcher(struct server *s, int n)
 //             exit(0);
         }
     }
-    
+
     return 0;
 }
 
@@ -431,7 +425,7 @@ main(int argc, char **argv)
     init_mempool();
 
     s = server_init();
-    read_config(config, (char *)s->logpath, s->forward, g_nameservers);    
+    read_config(config, (char *)s->logpath, s->forward, g_nameservers);
     s->is_forward = is_forward;
     server_listen(s);
 

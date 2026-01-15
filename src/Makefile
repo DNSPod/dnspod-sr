@@ -10,13 +10,13 @@ SERVER_NAME=dnspod-sr
 
 
 # ifeq (${T},g)
-CFLAGS=-g -Wall# -O3
+CFLAGS=-g -Wall #-O3
 # else
 # CFLAGS=
 # endif
 
 all:$(OBJS)
-	g++ -o $(SERVER_NAME) $(LD) $(OBJS) -lpthread -g# -O3
+	g++ -o $(SERVER_NAME) $(LD) $(OBJS) -lpthread -g #-O3
 #ltcmalloc
 
 #base 3
