@@ -16,7 +16,7 @@ CFLAGS=-g -Wall# -O3
 # endif
 
 all:$(OBJS)
-	gcc -o $(SERVER_NAME) $(LD) $(OBJS) -lpthread -g# -O3
+	gcc -o $(SERVER_NAME) $(LD) $(OBJS) -lpthread -g
 #ltcmalloc
 
 #base 3
